@@ -44,14 +44,14 @@ export default function AudioCard(props: any) {
           </Col>
           <Col span={24}>
             <Row style={{flex: 1}} gutter={[8,8]}>
-              <Col onClick={song.togglePlayPause} style={{border: "solid 1px grey", borderRadius: 10, padding: "5px 0px"}} span={12}>
+              <Col style={{border: "solid 1px grey", borderRadius: 10, padding: "5px 0px"}} span={12}>
                 {!song.playing ? 
-                  <PlayCircleOutlined style={{fontSize: 25}}/>:
-                  <PauseCircleOutlined style={{fontSize: 25, color:"red"}}/>
+                  <PlayCircleOutlined style={{fontSize: 25}} onClick={song.togglePlayPause}/>:
+                  <PauseCircleOutlined style={{fontSize: 25, color:"red"}} onClick={song.togglePlayPause}/>
                 }
               </Col>
-              <Col onClick={song.stop} style={{border: "solid 1px grey", borderRadius: 10, padding: "5px 0px"}} span={12}>
-                <RedoOutlined style={{fontSize: 25, color: !song.stopped ? "red" : "black"}}/>
+              <Col style={{border: "solid 1px grey", borderRadius: 10, padding: "5px 0px"}} span={12}>
+                <RedoOutlined onClick={song.stop} style={{fontSize: 25, color: !song.stopped ? "red" : "black"}}/>
               </Col>
             </Row>
           </Col>
