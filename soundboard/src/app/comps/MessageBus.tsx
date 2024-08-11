@@ -132,6 +132,9 @@ export function MessageBus (props: any) {
       })
     }
 
+    function disconnect () {
+      conn?.close()
+    }
     function broadcast(data: LogData) {
       var newData = messageLog;
       newData.push(data);
@@ -156,6 +159,7 @@ export function MessageBus (props: any) {
         send,
         host,
         node,
+        disconnect,
         connected,
         messageApi,
         contextHolder,
