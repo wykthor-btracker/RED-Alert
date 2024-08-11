@@ -1,6 +1,5 @@
 import { Button, Col, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
 import QueueAnim  from "rc-queue-anim"
-import Animate from "rc-animate"
 import { useState } from "react";
 import Fighter from "../comps/Fighter";
 const { Title } = Typography
@@ -151,7 +150,8 @@ export default function InitiativeTracker(props: any) {
       currentHealth: Number(values.health),
       maxHealth: Number(values.health),
       stoppingPower: Number(values.SP),
-      stoppingPowerMax: Number(values.SP)
+      stoppingPowerMax: Number(values.SP),
+      initiative: 0
       }])
       console.log('Success:', values);
     };
@@ -237,7 +237,7 @@ export default function InitiativeTracker(props: any) {
             }
           </>
         </Col>
-        <Col span={24} flex={1} style={{height: addFighters ? 300 : 0}}>
+        <Col span={24} flex={1}>
           {addFighters ? <>
           <Row gutter={[16,16]}>
               <Col span={4}>
@@ -280,7 +280,8 @@ export default function InitiativeTracker(props: any) {
         </Col>
         <Col span={24} style={{overflowY: "scroll", height: 300}}>
             <List 
-              style={{height: 400}} 
+              style={{height: 400}}
+              locale={{emptyText: "."}}
               dataSource={data} 
               renderItem={(item, index)=>(
                 <QueueAnim delay={150}>

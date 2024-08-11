@@ -1,6 +1,7 @@
 import { FloatButton, Input, InputRef, Row } from "antd";
 import { useContext, useRef, useState } from "react";
-import { MessageBusContext } from "../page";
+import { MessageBusContext } from "../contexts/MessageBusContext";
+
 
 export default function DiceRoller (props: any) {
     const {messageApi, send, senderData}          = useContext(MessageBusContext)
@@ -49,7 +50,6 @@ export default function DiceRoller (props: any) {
             }
             message = `${toRoll}d${size} = ${toString}, ${crits} críticos! ${crits ? "💥": ""}`
         }
-        messageApi?.info(message, 5)
         if(senderData) {
             send({
                 content: {message},
@@ -71,7 +71,7 @@ export default function DiceRoller (props: any) {
               inputRef.current?.focus({cursor: "all"})
           }}
           type="primary"
-          style={{insetInlineEnd: 94}}
+          style={{insetInlineEnd: 94, marginBottom: 25}}
           icon={<img src={"d10.svg"}></img>}>
           <FloatButton 
             tooltip={`Rolar ${toRoll}d10`} 

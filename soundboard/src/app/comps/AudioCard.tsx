@@ -1,10 +1,13 @@
 import { PauseCircleOutlined, PlayCircleOutlined, RedoOutlined, SoundOutlined } from "@ant-design/icons";
 import { Col, Row, Slider } from "antd";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { useAudioPlayer } from "react-use-audio-player";
+import { MessageBusContext } from "../contexts/MessageBusContext";
+
 
 export default function AudioCard(props: any) {
-    const song = useAudioPlayer()
+    const song              = useAudioPlayer()
+    const {messageLog}      = useContext(MessageBusContext)
     const [value, setValue] = useState(50);
     const style: React.CSSProperties = { 
       padding: '16px 8px', 
