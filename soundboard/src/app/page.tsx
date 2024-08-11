@@ -295,13 +295,21 @@ function ActivityLog (props: any) {
   const [inputText, setInputText] = useState("")
   const ref                       = useRef(null)
   const inputRef                  = useRef<InputRef>(null)
-  const springs = useSpring({
-    from: {x:0},
-    to: {x:100}
-  })
+  const items: TabsProps['items'] = [{
+    key: "1",
+    label: "Tudo",
+    children: <>
+      <AnimatedList list={messageLog}/>
+    </>
+  },
+    {key: "2",
+    label: "Privado",
+    children: <>
+      <AnimatedList list={messageLog}/>
+    </>
+  }]
   useEffect(()=>{
     if(ref.current) {
-      console.log("focusing!")
       ref.current.scrollIntoView({behavior: "smooth"})
     }
   }, [messageLog])
@@ -310,30 +318,8 @@ function ActivityLog (props: any) {
   <Row>
     <Col span={24} style={{height: 250, overflow: "auto"}}>
         <Divider>Chat</Divider>
-        <AnimatedList list={messageLog}/>
-        {/* <List
-          itemLayout="horizontal"
-          dataSource={messageLog}
-          renderItem={(item, index)=>{
-            if(item.metadata.code == 2) {
-            return <animated.div style={{...springs}}>
-              <List.Item
-                    key={index} 
-                    onClick={()=>{
-                      if(isHost) {
-                        alertPlayer(item, senderData, send)
-                      }
-                    }}>
-                  <List.Item.Meta
-                    avatar={<Avatar src={item.metadata.sender.avatar}/>}
-                    title={item.metadata.sender.name}
-                    description={item.content.message}/>
-                  </List.Item>
-            </animated.div>
-            } else return null
-          }}/> */}
-
-          <div ref={ref}/>
+        <Tabs defaultActiveKey="1" items={items}/>
+        <div ref={ref}/>
           
     </Col>
     <Col span={24}>
