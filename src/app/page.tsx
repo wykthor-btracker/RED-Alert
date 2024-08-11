@@ -1,5 +1,5 @@
 'use client';
-import { Col, Layout, Menu, MenuProps, Row, Tabs, TabsProps } from "antd";
+import { Col, Flex, Layout, Menu, MenuProps, Row, Tabs, TabsProps } from "antd";
 import { Content, Footer, Header } from "antd/es/layout/layout";
 import useImage from "use-image";
 import AudioCard from "./comps/AudioCard";
@@ -40,15 +40,17 @@ export default function Home() {
   return (
     <>
     <MessageBus>
-      <Layout style={{backgroundColor: "white"}}>
-        <Content style={{height: 450, overflow: "scroll"}}>
-          <Tabs defaultActiveKey="1" items={items}
-            tabBarExtraContent={{right: <SideMenu/>}}/>
-        </Content>
-        <Footer>
-          <ActivityLog/>
-        </Footer>
-      </Layout>
+      <Flex>
+        <Layout style={{backgroundColor: "white", flex:1, height: "100vh"}}>
+          <Content style={{height: "60vh", overflow: "scroll"}}>
+            <Tabs defaultActiveKey="1" items={items}
+              tabBarExtraContent={{right: <SideMenu/>}}/>
+          </Content>
+          <Footer style={{minHeight: "40vh", backgroundColor: "white"}}>
+            <ActivityLog/>
+          </Footer>
+        </Layout>
+      </Flex>
     </MessageBus>
     </>
   );

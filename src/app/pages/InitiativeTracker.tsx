@@ -278,9 +278,8 @@ export default function InitiativeTracker(props: any) {
           </Row>
           </> : null}
         </Col>
-        <Col span={24} style={{overflowY: "scroll", height: 300}}>
+        <Col span={24} style={{overflowY: "scroll", height: "60vh"}}>
             <List 
-              style={{height: 400}}
               locale={{emptyText: "."}}
               dataSource={data} 
               renderItem={(item, index)=>(

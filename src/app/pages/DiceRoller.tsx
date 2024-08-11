@@ -71,7 +71,7 @@ export default function DiceRoller (props: any) {
               inputRef.current?.focus({cursor: "all"})
           }}
           type="primary"
-          style={{insetInlineEnd: 94, marginBottom: 25}}
+          style={{insetInlineEnd: 94, marginBottom: 5}}
           icon={<img src={"d10.svg"}></img>}>
           <FloatButton 
             tooltip={`Rolar ${toRoll}d10`} 

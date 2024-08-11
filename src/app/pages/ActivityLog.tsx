@@ -31,9 +31,9 @@ export function ActivityLog (props: any) {
     }, [messageLog])
     return <>
     <DiceRoller/>
-    <Row>
+    <Row style={{justifyItems: "space-between"}} gutter={[16,16]}>
+      <Divider>Chat</Divider>
       <Col span={24} style={{height: 250, overflow: "auto"}}>
-          <Divider>Chat</Divider>
           <AnimatedList list={messageLog}/>
           <div ref={ref}/>
       </Col>
