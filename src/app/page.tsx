@@ -1,28 +1,24 @@
 'use client';
-import { Col, Flex, Layout, Menu, MenuProps, Row, Tabs, TabsProps } from "antd";
-import { Content, Footer, Header } from "antd/es/layout/layout";
-import useImage from "use-image";
+import { BarsOutlined, GlobalOutlined, PlayCircleOutlined } from "@ant-design/icons";
+import { Flex, Layout, Row, Tabs, TabsProps } from "antd";
+import { Content, Footer } from "antd/es/layout/layout";
 import AudioCard from "./comps/AudioCard";
 import { MessageBus } from "./comps/MessageBus";
 import SideMenu from "./comps/sideMenu";
 import { LogData, LogDataMetadataSenderData } from "./contexts/MessageBusContext";
 import { ActivityLog } from "./pages/ActivityLog";
 import InitiativeTracker from "./pages/InitiativeTracker";
-import Sider from "antd/es/layout/Sider";
-import { BarsOutlined, GlobalOutlined, PlayCircleOutlined, SoundOutlined } from "@ant-design/icons";
-import { useRouter } from "next/router";
 export default function Home() {
-  const router = useRouter()
   const items: TabsProps['items'] = [
     {
       key: "1",
       label: "Audio",
       children:       <Row gutter={16} style={{margin: 10}}>
-          <AudioCard title="Calling"          source={`${router.basePath}/sounds/caller.mp4`}/>
-          <AudioCard title="Calling"          source={`${router.basePath}/sounds/call received.mp4`}/>
-          <AudioCard title="Calling"          source={`${router.basePath}/sounds/message sent.mp4`}/>
-          <AudioCard title="Calling"          source={`${router.basePath}/sounds/message received.mp4`}/>
-          <AudioCard title="Calling"          source={`${router.basePath}/sounds/ICE defeated.mp4`}/>
+          <AudioCard title="Calling"          source="/sounds/caller.mp4"/>
+          <AudioCard title="Receiving Call"   source="/sounds/call received.mp4"/>
+          <AudioCard title="Message sent"     source="/sounds/message sent.mp4"/>
+          <AudioCard title="Message received" source="/sounds/message received.mp4"/>
+          <AudioCard title="ICE defeated"     source="/sounds/ICE defeated.mp4"/>
     </Row>,
       icon: <PlayCircleOutlined/>},
     {
