@@ -25,6 +25,7 @@ export const MessageBusContext = createContext({
   node: (ID: string) => {},
   disconnect: () => {},
   connected: false,
+  connections: [] as DataConnection[],
   messageApi: null as MessageInstance | null,
   contextHolder: null as ReactElement | null,
   ID: "",

@@ -7,8 +7,18 @@ import { MessageBusContext } from "../contexts/MessageBusContext";
 
 export default function AudioCard(props: any) {
     const song              = useAudioPlayer()
-    const {messageLog}      = useContext(MessageBusContext)
+    const {messageLog, senderData}      = useContext(MessageBusContext)
     const [value, setValue] = useState(50);
+
+    useEffect(()=>{
+      let lastMessage = messageLog[messageLog.length-1]
+      if(lastMessage.metadata.code == 10) {
+        if(lastMessage.content.message == props.title && 
+          lastMessage.metadata.data.target == senderData?.name) {
+            song.togglePlayPause()
+          }
+      }
+    },[messageLog])
     const style: React.CSSProperties = { 
       padding: '16px 8px', 
       borderRadius: 10, 

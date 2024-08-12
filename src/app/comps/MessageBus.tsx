@@ -160,6 +160,7 @@ export function MessageBus (props: any) {
         host,
         node,
         disconnect,
+        connections,
         connected,
         messageApi,
         contextHolder,

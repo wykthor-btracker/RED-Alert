@@ -8,18 +8,25 @@ import SideMenu from "./comps/sideMenu";
 import { LogData, LogDataMetadataSenderData } from "./contexts/MessageBusContext";
 import { ActivityLog } from "./pages/ActivityLog";
 import InitiativeTracker from "./pages/InitiativeTracker";
+
 export default function Home() {
-  const path = "/RED-Alert"
+  let path
+  if(process.env.NODE_ENV == "production") {
+    path = "/RED-Alert"
+  }
+  else {
+    path = ""
+  }
   const items: TabsProps['items'] = [
     {
       key: "1",
       label: "Audio",
       children:       <Row gutter={16} style={{margin: 10}}>
-          <AudioCard title="Calling"          source={`${path}/sounds/caller.mp4`}/>
-          <AudioCard title="Calling"          source={`${path}/sounds/call received.mp4`}/>
-          <AudioCard title="Calling"          source={`${path}/sounds/message sent.mp4`}/>
-          <AudioCard title="Calling"          source={`${path}/sounds/message received.mp4`}/>
-          <AudioCard title="Calling"          source={`${path}/sounds/ICE defeated.mp4`}/>
+          <AudioCard title="Ligando"          source={`${path}/sounds/caller.mp4`}/>
+          <AudioCard title="Recebendo ligação"          source={`${path}/sounds/call received.mp4`}/>
+          <AudioCard title="Mensagem enviada"          source={`${path}/sounds/message sent.mp4`}/>
+          <AudioCard title="Mensagem recebida"          source={`${path}/sounds/message received.mp4`}/>
+          <AudioCard title="ICE destruído"          source={`${path}/sounds/ICE defeated.mp4`}/>
     </Row>,
       icon: <PlayCircleOutlined/>},
     {
