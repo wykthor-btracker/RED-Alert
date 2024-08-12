@@ -123,10 +123,6 @@ export function ActivityLog (props: any) {
                       target={item.metadata.sender}
                       sender={senderData}
                       send={send}/>
-                    <Button onClick={()=>{alertPlayer(item.metadata.sender, senderData, send)}}>
-                      <Avatar src={item.metadata.sender.avatar}></Avatar>
-                      {item.metadata.sender.name}
-                    </Button>
                   </List.Item>
                 }}/>
             </Col>
