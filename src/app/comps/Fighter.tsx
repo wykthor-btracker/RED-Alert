@@ -33,6 +33,9 @@ export default function Fighter(props: any) {
       currentHealth: props.item.currentHealth,
       maxHealth: props.item.maxHealth
     })
+    /** Input values for Set SP (body and head), pre-filled with starting/max SP */
+    const [setSpBodyValue, setSetSpBodyValue] = useState(stats.stoppingPowerMax)
+    const [setSpHeadValue, setSetSpHeadValue] = useState(stats.stoppingPowerHeadMax)
     // Sync from parent when combatant is updated from outside (e.g. damage/armor from Mapa tab)
     useEffect(() => {
       const item = props.item as { stoppingPowerHead?: number; stoppingPowerHeadMax?: number };
@@ -47,6 +50,13 @@ export default function Fighter(props: any) {
         stoppingPowerHeadMax: item.stoppingPowerHeadMax ?? props.item.stoppingPowerMax ?? props.item.stoppingPower,
       }))
     }, [props.item.currentHealth, props.item.maxHealth, props.item.stoppingPower, props.item.stoppingPowerMax, (props.item as { stoppingPowerHead?: number }).stoppingPowerHead, (props.item as { stoppingPowerHeadMax?: number }).stoppingPowerHeadMax, props.item.name])
+    // Pre-fill Set SP inputs with max when combatant or max changes (not when only current SP changes)
+    useEffect(() => {
+      const maxBody = props.item.stoppingPowerMax ?? props.item.stoppingPower
+      const maxHead = (props.item as { stoppingPowerHeadMax?: number }).stoppingPowerHeadMax ?? props.item.stoppingPowerMax ?? props.item.stoppingPower
+      setSetSpBodyValue(maxBody)
+      setSetSpHeadValue(maxHead)
+    }, [props.item.id, props.item.stoppingPowerMax, (props.item as { stoppingPowerHeadMax?: number }).stoppingPowerHeadMax])
     useEffect(()=>{
       if(props.currentTurn == props.index && currentRef.current) {
         currentRef.current.scrollIntoView({behavior: "smooth"})
@@ -94,10 +104,12 @@ export default function Fighter(props: any) {
       broadcastUpdate(`${stats.name}: SP corpo reduzido em 1`)
     }
   
-    function resetStoppingPower () {
-      setStats({...stats,
-        stoppingPower: stats.stoppingPowerMax})
-      broadcastUpdate(`${stats.name}: SP corpo resetado para ${stats.stoppingPowerMax}`)
+    function setStoppingPowerBody () {
+      const val = Math.max(0, Math.round(Number(setSpBodyValue) || 0))
+      const newMax = Math.max(stats.stoppingPowerMax, val)
+      setStats({ ...stats, stoppingPower: val, stoppingPowerMax: newMax })
+      props.onStoppingPowerChange?.(props.item.id, val, newMax)
+      broadcastUpdate(`${stats.name}: SP corpo definido para ${val}`)
     }
     function ablateHead () {
       setStats({...stats,
@@ -105,10 +117,12 @@ export default function Fighter(props: any) {
       broadcastUpdate(`${stats.name}: SP cabeça reduzido em 1`)
     }
   
-    function resetStoppingPowerHead () {
-      setStats({...stats,
-        stoppingPowerHead: stats.stoppingPowerHeadMax})
-      broadcastUpdate(`${stats.name}: SP cabeça resetado para ${stats.stoppingPowerHeadMax}`)
+    function setStoppingPowerHead () {
+      const val = Math.max(0, Math.round(Number(setSpHeadValue) || 0))
+      const newMax = Math.max(stats.stoppingPowerHeadMax, val)
+      setStats({ ...stats, stoppingPowerHead: val, stoppingPowerHeadMax: newMax })
+      props.onStoppingPowerHeadChange?.(props.item.id, val, newMax)
+      broadcastUpdate(`${stats.name}: SP cabeça definido para ${val}`)
     }
     return (
       <Badge.Ribbon color="red" text={props.currentTurn == props.index ? "Sua vez!" : ""}>
@@ -218,15 +232,33 @@ export default function Fighter(props: any) {
                 <Col span={3}>
                   <Input onChange={(event)=>setValue(event.target.value)} value={value}></Input>
                 </Col>
-                <Col span={12} style={{textAlign: "end"}}>
-                  <Row justify={"end"}>
+                <Col span={12}>
+                  <Row gutter={8}>
                     <Col span={12}>
-                      <Button onClick={ablateHead}>Ablate</Button>
-                      <Button onClick={resetStoppingPowerHead}>Reset SP</Button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Button onClick={ablateHead}>Ablate</Button>
+                        <InputNumber
+                          min={0}
+                          value={setSpHeadValue}
+                          onChange={(v) => setSetSpHeadValue(v != null ? Number(v) : stats.stoppingPowerHeadMax)}
+                          style={{ width: 56 }}
+                          controls={false}
+                        />
+                        <Button onClick={setStoppingPowerHead} style={{ marginLeft: "auto" }}>Set SP</Button>
+                      </div>
                     </Col>
                     <Col span={12}>
-                      <Button onClick={ablate}>Ablate</Button>
-                      <Button onClick={resetStoppingPower}>Reset SP</Button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Button onClick={ablate}>Ablate</Button>
+                        <InputNumber
+                          min={0}
+                          value={setSpBodyValue}
+                          onChange={(v) => setSetSpBodyValue(v != null ? Number(v) : stats.stoppingPowerMax)}
+                          style={{ width: 56 }}
+                          controls={false}
+                        />
+                        <Button onClick={setStoppingPowerBody} style={{ marginLeft: "auto" }}>Set SP</Button>
+                      </div>
                     </Col>
                   </Row>
                 </Col>

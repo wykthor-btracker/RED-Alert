@@ -39,6 +39,8 @@ function DraggableFighter(props: {
   currentTurn: number;
   onInitiativeChange: (id: string, value: number) => void;
   onNameChange?: (id: string, newName: string) => void;
+  onStoppingPowerChange?: (id: string, body: number, bodyMax?: number) => void;
+  onStoppingPowerHeadChange?: (id: string, head: number, headMax?: number) => void;
   onMove: (fromIndex: number, toIndex: number) => void;
   totalCount: number;
 }) {
@@ -81,6 +83,8 @@ function DraggableFighter(props: {
         currentTurn={props.currentTurn}
         onInitiativeChange={props.onInitiativeChange}
         onNameChange={props.onNameChange}
+        onStoppingPowerChange={props.onStoppingPowerChange}
+        onStoppingPowerHeadChange={props.onStoppingPowerHeadChange}
       />
     </div>
   );
@@ -311,6 +315,24 @@ export default function InitiativeTracker(props: any) {
       )
       broadcastUpdate(`Iniciativa: nome alterado para "${trimmed}"`)
     }
+    function onStoppingPowerChange(id: string, body: number, bodyMax?: number) {
+      setInitiativeCombatants((prev) =>
+        prev.map((d) =>
+          d.id === id
+            ? { ...d, stoppingPower: body, ...(bodyMax != null && { stoppingPowerMax: bodyMax }) }
+            : d
+        )
+      )
+    }
+    function onStoppingPowerHeadChange(id: string, head: number, headMax?: number) {
+      setInitiativeCombatants((prev) =>
+        prev.map((d) =>
+          d.id === id
+            ? { ...d, stoppingPowerHead: head, ...(headMax != null && { stoppingPowerHeadMax: headMax }) }
+            : d
+        )
+      )
+    }
     function moveCombatant(fromIndex: number, toIndex: number) {
       if (fromIndex === toIndex || toIndex < 0 || toIndex >= data.length) return
       const next = [...initiativeCombatants]
@@ -441,6 +463,8 @@ export default function InitiativeTracker(props: any) {
                     currentTurn={tracking ? currentTurnIndex : -1}
                     onInitiativeChange={onInitiativeChange}
                     onNameChange={onNameChange}
+                    onStoppingPowerChange={onStoppingPowerChange}
+                    onStoppingPowerHeadChange={onStoppingPowerHeadChange}
                     onMove={moveCombatant}
                     totalCount={data.length}
                   />
