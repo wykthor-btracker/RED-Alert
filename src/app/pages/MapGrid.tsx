@@ -13,7 +13,7 @@ import {
   ThunderboltOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { Button, Checkbox, Col, Dropdown, InputNumber, MenuProps, message, Modal, Row, Switch, Tooltip } from "antd";
+import { Button, Checkbox, Col, Dropdown, Input, InputNumber, MenuProps, message, Modal, Row, Select, Switch, Tooltip } from "antd";
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -478,7 +478,7 @@ function CombatantHoverBars(props: {
 }
 
 export default function MapGrid() {
-  const { mapGrid, setMapGrid, isHost, initiativeCombatants, setInitiativeCombatants, send, senderData } = useContext(MessageBusContext);
+  const { mapGrid, setMapGrid, isHost, initiativeCombatants, setInitiativeCombatants, send, senderData, savedMaps, currentMapId, setCurrentMapId, createMap, renameMap, setMapBackgroundImage, setMapBackgroundPosition } = useContext(MessageBusContext);
 
   const broadcastUpdate = (message: string) => {
     if (send && senderData) {
@@ -549,6 +549,43 @@ export default function MapGrid() {
   const [shotgunDamageAmount, setShotgunDamageAmount] = useState(4);
   const [shotgunDamageCover, setShotgunDamageCover] = useState(true);
 
+  /** Rename map modal */
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [renameInputValue, setRenameInputValue] = useState("");
+  const backgroundImageInputRef = useRef<HTMLInputElement>(null);
+  /** Background position adjustment: when true, user can drag to reposition and confirm/cancel */
+  const [positioningMode, setPositioningMode] = useState(false);
+  const [editPositionX, setEditPositionX] = useState(50);
+  const [editPositionY, setEditPositionY] = useState(50);
+  const positionDragRef = useRef<{ lastClientX: number; lastClientY: number } | null>(null);
+  const backgroundLayerRef = useRef<HTMLDivElement>(null);
+  const [isDraggingBackground, setIsDraggingBackground] = useState(false);
+  useEffect(() => {
+    if (!isDraggingBackground) return;
+    const onMove = (e: MouseEvent) => {
+      const ref = positionDragRef.current;
+      const el = backgroundLayerRef.current;
+      if (!ref || !el) return;
+      const rect = el.getBoundingClientRect();
+      const dx = ((e.clientX - ref.lastClientX) / rect.width) * 100;
+      const dy = ((e.clientY - ref.lastClientY) / rect.height) * 100;
+      ref.lastClientX = e.clientX;
+      ref.lastClientY = e.clientY;
+      setEditPositionX((prev) => Math.min(100, Math.max(0, prev + dx)));
+      setEditPositionY((prev) => Math.min(100, Math.max(0, prev + dy)));
+    };
+    const onUp = () => {
+      positionDragRef.current = null;
+      setIsDraggingBackground(false);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, [isDraggingBackground]);
+
   const handleCreateGrid = () => {
     const rows = Math.max(1, Math.min(24, Math.round(rowsInput)));
     const cols = Math.max(1, Math.min(24, Math.round(colsInput)));
@@ -568,6 +605,7 @@ export default function MapGrid() {
   const gridState = mapGrid ?? { rows: 0, cols: 0, cells: [] as (string | null)[][] };
   const { rows, cols, cells, coverCells: rawCoverCells } = gridState;
   const coverCells = rawCoverCells ?? {};
+  const hasBackgroundImage = !!mapGrid?.backgroundImage;
 
   const toggleCover = (r: number, c: number) => {
     if (!mapGrid || !isHost) return;
@@ -1022,32 +1060,137 @@ export default function MapGrid() {
       )}
       <Col span={24}>
         <Row gutter={16} wrap={false}>
-          {initiativeCombatants.length > 0 && (
+          {(initiativeCombatants.length > 0 || savedMaps.length > 0 || isHost) && (
             <Col flex="none">
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Iniciativa</div>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, maxHeight: "50vh", overflowY: "auto" }}>
-                {initiativeCombatants.map((comb) => (
-                  <li
-                    key={comb.id}
-                    draggable={isHost}
-                    onDragStart={(e) => {
-                      if (!isHost) return;
-                      e.dataTransfer.setData(DRAG_TYPE_INITIATIVE, comb.id);
-                      e.dataTransfer.effectAllowed = "copy";
-                    }}
-                    style={{
-                      padding: "6px 10px",
-                      marginBottom: 4,
-                      background: "#f5f5f5",
-                      borderRadius: 4,
-                      cursor: isHost ? "grab" : "default",
-                      border: "1px solid #d9d9d9",
-                    }}
-                  >
-                    {comb.name}
-                  </li>
-                ))}
-              </ul>
+              {initiativeCombatants.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Iniciativa</div>
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0, maxHeight: "50vh", overflowY: "auto" }}>
+                    {initiativeCombatants.map((comb) => (
+                      <li
+                        key={comb.id}
+                        draggable={isHost}
+                        onDragStart={(e) => {
+                          if (!isHost) return;
+                          e.dataTransfer.setData(DRAG_TYPE_INITIATIVE, comb.id);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        style={{
+                          padding: "6px 10px",
+                          marginBottom: 4,
+                          background: "#f5f5f5",
+                          borderRadius: 4,
+                          cursor: isHost ? "grab" : "default",
+                          border: "1px solid #d9d9d9",
+                        }}
+                      >
+                        {comb.name}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, marginTop: initiativeCombatants.length > 0 ? 16 : 0 }}>Mapa</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <Select
+                  placeholder="Selecionar mapa"
+                  value={currentMapId || undefined}
+                  onChange={(id) => (id != null ? setCurrentMapId(id) : setCurrentMapId(null))}
+                  disabled={!isHost}
+                  style={{ minWidth: 160 }}
+                  options={savedMaps.map((m) => ({ value: m.id, label: m.name }))}
+                  allowClear
+                />
+                {isHost && (
+                  <>
+                    <Button size="small" type="primary" onClick={() => createMap()}>
+                      Novo mapa
+                    </Button>
+                    {currentMapId && (
+                      <>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            const map = savedMaps.find((m) => m.id === currentMapId);
+                            setRenameInputValue(map?.name ?? "");
+                            setRenameModalOpen(true);
+                          }}
+                        >
+                          Renomear mapa
+                        </Button>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          ref={backgroundImageInputRef}
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!file || !file.type.startsWith("image/")) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              const dataUrl = reader.result as string;
+                              setMapBackgroundImage(dataUrl);
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                        <Button size="small" onClick={() => backgroundImageInputRef.current?.click()}>
+                          Imagem de fundo
+                        </Button>
+                        {mapGrid?.backgroundImage && (
+                          <>
+                            {!positioningMode ? (
+                              <Button size="small" onClick={() => { setEditPositionX(mapGrid?.backgroundPositionX ?? 50); setEditPositionY(mapGrid?.backgroundPositionY ?? 50); setPositioningMode(true); }}>
+                                Ajustar posição
+                              </Button>
+                            ) : (
+                              <>
+                                <Button size="small" type="primary" onClick={() => { setMapBackgroundPosition(editPositionX, editPositionY); setPositioningMode(false); }}>
+                                  Confirmar
+                                </Button>
+                                <Button size="small" onClick={() => setPositioningMode(false)}>
+                                  Cancelar
+                                </Button>
+                              </>
+                            )}
+                            <Button size="small" danger onClick={() => { setMapBackgroundImage(null); setPositioningMode(false); }}>
+                              Remover imagem
+                            </Button>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+              <Modal
+                title="Renomear mapa"
+                open={renameModalOpen}
+                onOk={() => {
+                  const trimmed = renameInputValue.trim();
+                  if (currentMapId && trimmed) {
+                    renameMap(currentMapId, trimmed);
+                    setRenameModalOpen(false);
+                  }
+                }}
+                onCancel={() => setRenameModalOpen(false)}
+                okText="Guardar"
+                cancelText="Cancelar"
+              >
+                <Input
+                  value={renameInputValue}
+                  onChange={(e) => setRenameInputValue(e.target.value)}
+                  placeholder="Nome do mapa"
+                  onPressEnter={() => {
+                    const trimmed = renameInputValue.trim();
+                    if (currentMapId && trimmed) {
+                      renameMap(currentMapId, trimmed);
+                      setRenameModalOpen(false);
+                    }
+                  }}
+                />
+              </Modal>
             </Col>
           )}
           <Col flex="1" style={{ minWidth: 0 }}>
@@ -1057,19 +1200,54 @@ export default function MapGrid() {
             <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Passe o mouse para apontar; clique numa célula para aplicar dano.</span>
           </div>
         )}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
-            gridTemplateRows: `repeat(${rows}, ${cellSize}px)`,
-            gap: 2,
-            width: "fit-content",
-            backgroundColor: "#d9d9d9",
-            padding: 4,
-            borderRadius: 4,
-          }}
-          onMouseLeave={() => { if (shotgunShooter && !shotgunModalOpen) setShotgunHoveredCell(null); }}
-        >
+        <div style={{ position: "relative", display: "inline-block" }}>
+          {mapGrid?.backgroundImage && (
+            <div
+              ref={backgroundLayerRef}
+              role={positioningMode ? "button" : undefined}
+              style={{
+                position: "absolute",
+                top: 4,
+                left: 4,
+                right: 4,
+                bottom: 4,
+                borderRadius: 4,
+                backgroundImage: `url(${mapGrid.backgroundImage})`,
+                backgroundSize: "cover",
+                backgroundPosition: positioningMode
+                  ? `${editPositionX}% ${editPositionY}%`
+                  : `${mapGrid.backgroundPositionX ?? 50}% ${mapGrid.backgroundPositionY ?? 50}%`,
+                backgroundRepeat: "no-repeat",
+                pointerEvents: positioningMode ? "auto" : "none",
+                cursor: positioningMode ? "move" : undefined,
+                zIndex: positioningMode ? 10 : 0,
+                userSelect: positioningMode ? "none" : undefined,
+              }}
+              onMouseDown={
+                positioningMode && isHost
+                  ? (e) => {
+                      e.preventDefault();
+                      positionDragRef.current = { lastClientX: e.clientX, lastClientY: e.clientY };
+                      setIsDraggingBackground(true);
+                    }
+                  : undefined
+              }
+            />
+          )}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
+              gridTemplateRows: `repeat(${rows}, ${cellSize}px)`,
+              gap: 2,
+              width: "fit-content",
+              backgroundColor: mapGrid?.backgroundImage ? "rgba(217, 217, 217, 0.3)" : "#d9d9d9",
+              padding: 4,
+              borderRadius: 4,
+              position: "relative",
+            }}
+            onMouseLeave={() => { if (shotgunShooter && !shotgunModalOpen) setShotgunHoveredCell(null); }}
+          >
           {cells.map((row, r) =>
             row.map((combatantId, c) => {
               const key = coverKey(r, c);
@@ -1168,8 +1346,12 @@ export default function MapGrid() {
                             : isInShotgunCone
                               ? "rgba(255, 180, 80, 0.35)"
                               : isCover
-                                ? "#8b7355"
-                                : "#fff",
+                                ? "#1a1a1a"
+                                : combatantId && hasBackgroundImage
+                                  ? "#fff"
+                                  : hasBackgroundImage
+                                    ? "transparent"
+                                    : "#fff",
                     border:
                       isMirarOrigin
                         ? "2px solid #1890ff"
@@ -1180,15 +1362,15 @@ export default function MapGrid() {
                             : isInShotgunCone
                               ? "1px solid #e67e22"
                               : isCover
-                                ? "1px solid #5d4e3d"
+                                ? "1px solid #333"
                                 : "1px solid #bfbfbf",
-                    borderRadius: 2,
+                    borderRadius: combatantId && hasBackgroundImage ? "50%" : 2,
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
                     justifyContent: "center",
                     fontSize: 10,
-                    color: combatantId ? "#1677ff" : isCover ? "#f0e6d8" : "#bfbfbf",
+                    color: combatantId ? "#1677ff" : isCover ? "#e0e0e0" : "#bfbfbf",
                     overflow: "visible",
                     padding: 2,
                     cursor:
@@ -1223,7 +1405,7 @@ export default function MapGrid() {
                         alignItems: "center",
                         justifyContent: "center",
                         backgroundColor: "rgba(180, 0, 0, 0.6)",
-                        borderRadius: 2,
+                        borderRadius: hasBackgroundImage ? "50%" : 2,
                         pointerEvents: "none",
                       }}
                       aria-hidden
@@ -1318,6 +1500,7 @@ export default function MapGrid() {
               return cellContent;
             })
           )}
+          </div>
         </div>
           </Col>
         </Row>

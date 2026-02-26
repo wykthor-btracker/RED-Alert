@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { InitiativeCombatant, LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
+import { InitiativeCombatant, LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext, SavedMap } from "../contexts/MessageBusContext";
 import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
 import type { CharacterData, InventoryEntry } from "../types/character";
@@ -10,6 +10,7 @@ const KEEPALIVE_INTERVAL_MS = 25_000;
 const KEEPALIVE_TYPE = "keepalive";
 const SYNC_TYPE = "sync";
 const MAP_GRID_SYNC_TYPE = "mapGridSync";
+const MAP_LIST_SYNC_TYPE = "mapListSync";
 const INITIATIVE_SYNC_TYPE = "initiativeSync";
 const INITIATIVE_UPDATE_FROM_CLIENT = "initiativeUpdateFromClient";
 const REQUEST_INITIAL_SYNC_TYPE = "requestInitialSync";
@@ -76,6 +77,8 @@ type HostPersistState = {
   savedCharacters: Array<{ ownerName: string; peerId?: string; data: CharacterData }>;
   messageLog: LogData[];
   mapGrid: MapGridState | null;
+  savedMaps: SavedMap[];
+  currentMapId: string | null;
   initiativeCombatants: InitiativeCombatant[];
   userData: CharacterData | null;
   currentEditedOwnerName: string | null;
@@ -135,6 +138,8 @@ export function MessageBus (props: any) {
         name: `Player ${randomKey}`,
     })
     const [mapGrid, setMapGridState] = useState<MapGridState | null>(null)
+    const [savedMaps, setSavedMapsState] = useState<SavedMap[]>([])
+    const [currentMapId, setCurrentMapIdState] = useState<string | null>(null)
     const [initiativeCombatants, setInitiativeCombatantsState] = useState<InitiativeCombatant[]>([])
     const [userData, setUserDataState] = useState<CharacterData | null>(null)
     /** Host: saved characters (owner name + optional peerId for client-owned; data). */
@@ -152,6 +157,8 @@ export function MessageBus (props: any) {
     const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const mapGridRef = useRef<MapGridState | null>(null);
+    const savedMapsRef = useRef<SavedMap[]>([]);
+    const currentMapIdRef = useRef<string | null>(null);
     const initiativeCombatantsRef = useRef<InitiativeCombatant[]>([]);
     const userDataRef = useRef<CharacterData | null>(null);
     const currentEditedOwnerNameRef = useRef<string | null>(null);
@@ -162,6 +169,8 @@ export function MessageBus (props: any) {
     connectionsRef.current = connections;
     connectionDisplayNamesRef.current = connectionDisplayNames;
     mapGridRef.current = mapGrid;
+    savedMapsRef.current = savedMaps;
+    currentMapIdRef.current = currentMapId;
     initiativeCombatantsRef.current = initiativeCombatants;
     userDataRef.current = userData;
 
@@ -205,11 +214,13 @@ export function MessageBus (props: any) {
         savedCharacters,
         messageLog,
         mapGrid,
+        savedMaps,
+        currentMapId,
         initiativeCombatants,
         userData,
         currentEditedOwnerName,
       });
-    }, [isHost, savedCharacters, messageLog, mapGrid, initiativeCombatants, userData, currentEditedOwnerName]);
+    }, [isHost, savedCharacters, messageLog, mapGrid, savedMaps, currentMapId, initiativeCombatants, userData, currentEditedOwnerName]);
 
     // When initiative combatants change (e.g. damage/heal/SP on Iniciativa or Mapa), push HP/SP back to the source sheet so Personagem tab stays in sync. Only update when sheet actually differs to avoid update loops.
     useEffect(() => {
@@ -404,8 +415,35 @@ export function MessageBus (props: any) {
           })) as LogData[];
           setMessageLog(withIds);
         }
-        if (restored.mapGrid && typeof restored.mapGrid === "object" && typeof restored.mapGrid.rows === "number" && typeof restored.mapGrid.cols === "number" && Array.isArray(restored.mapGrid.cells)) {
+        let restoredMaps: SavedMap[] = [];
+        if (Array.isArray(restored.savedMaps) && restored.savedMaps.length > 0) {
+          restoredMaps = restored.savedMaps.filter(
+            (m: unknown): m is SavedMap =>
+              m != null &&
+              typeof m === "object" &&
+              typeof (m as SavedMap).id === "string" &&
+              typeof (m as SavedMap).name === "string" &&
+              (m as SavedMap).state &&
+              typeof (m as SavedMap).state.rows === "number" &&
+              typeof (m as SavedMap).state.cols === "number" &&
+              Array.isArray((m as SavedMap).state.cells)
+          );
+          setSavedMapsState(restoredMaps);
+          savedMapsRef.current = restoredMaps;
+        }
+        const restoredCurrentMapId = restored.currentMapId != null && typeof restored.currentMapId === "string" ? restored.currentMapId : null;
+        if (restoredCurrentMapId !== null) {
+          setCurrentMapIdState(restoredCurrentMapId);
+          currentMapIdRef.current = restoredCurrentMapId;
+        }
+        // Restore displayed grid: from current map if we have one, else legacy single mapGrid
+        const currentMap = restoredCurrentMapId ? restoredMaps.find((m) => m.id === restoredCurrentMapId) : null;
+        if (currentMap?.state) {
+          setMapGridState(currentMap.state);
+          mapGridRef.current = currentMap.state;
+        } else if (restored.mapGrid && typeof restored.mapGrid === "object" && typeof restored.mapGrid.rows === "number" && typeof restored.mapGrid.cols === "number" && Array.isArray(restored.mapGrid.cells)) {
           setMapGridState(restored.mapGrid);
+          mapGridRef.current = restored.mapGrid;
         }
         if (Array.isArray(restored.initiativeCombatants) && restored.initiativeCombatants.length > 0) {
           const list = restored.initiativeCombatants.filter(
@@ -477,6 +515,10 @@ export function MessageBus (props: any) {
             }
             const grid = mapGridRef.current;
             if (grid) peerConn.send({ metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData, data: grid }, content: {} });
+            peerConn.send({
+              metadata: { type: MAP_LIST_SYNC_TYPE, code: 0, sender: senderData, data: { savedMaps: savedMapsRef.current, currentMapId: currentMapIdRef.current } },
+              content: {},
+            });
             const peerName = connectionDisplayNamesRef.current[peerConn.peer] ?? (peerConn.metadata?.label as string) ?? "";
             const saved = savedCharactersRef.current;
             const matchingSheets = peerName ? saved.filter((s) => s.ownerName === peerName) : [];
@@ -496,6 +538,7 @@ export function MessageBus (props: any) {
             const payload = data as LogData;
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
             if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) return;
+            if (payload.metadata?.type === MAP_LIST_SYNC_TYPE) return;
             if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) return;
             if (payload.metadata?.type === INITIATIVE_UPDATE_FROM_CLIENT) {
               const list = payload.metadata?.data as InitiativeCombatant[] | undefined;
@@ -687,6 +730,18 @@ export function MessageBus (props: any) {
             else if (grid === null) setMapGridState(null);
             return;
           }
+          if (payload.metadata?.type === MAP_LIST_SYNC_TYPE) {
+            const d = payload.metadata?.data as { savedMaps?: SavedMap[]; currentMapId?: string | null } | undefined;
+            if (d && Array.isArray(d.savedMaps)) {
+              const maps = d.savedMaps.filter(
+                (m): m is SavedMap =>
+                  m != null && typeof m.id === "string" && typeof m.name === "string" && m.state && typeof m.state.rows === "number" && Array.isArray(m.state.cells)
+              );
+              setSavedMapsState(maps);
+            }
+            if (d && "currentMapId" in d) setCurrentMapIdState(d.currentMapId ?? null);
+            return;
+          }
           if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) {
             const list = payload.metadata?.data as InitiativeCombatant[] | undefined;
             if (Array.isArray(list)) {
@@ -805,10 +860,28 @@ export function MessageBus (props: any) {
       }
     }
 
+    function broadcastMapList() {
+      const payload = {
+        metadata: { type: MAP_LIST_SYNC_TYPE, code: 0, sender: senderData!, data: { savedMaps: savedMapsRef.current, currentMapId: currentMapIdRef.current } },
+        content: {},
+      } as LogData;
+      connectionsRef.current.forEach((c) => {
+        if (c.open) c.send(payload);
+      });
+    }
+
     function setMapGrid(state: MapGridState | null) {
       if (!isHost) return;
       setMapGridState(state);
       mapGridRef.current = state;
+      const cid = currentMapIdRef.current;
+      if (cid && state) {
+        setSavedMapsState((prev) =>
+          prev.map((m) => (m.id === cid ? { ...m, state } : m))
+        );
+        savedMapsRef.current = savedMapsRef.current.map((m) => (m.id === cid ? { ...m, state } : m));
+        broadcastMapList();
+      }
       const payload = {
         metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData!, data: state },
         content: {},
@@ -816,6 +889,116 @@ export function MessageBus (props: any) {
       connectionsRef.current.forEach((c) => {
         if (c.open) c.send(payload);
       });
+    }
+
+    function setCurrentMapId(id: string | null) {
+      if (!isHost) return;
+      setCurrentMapIdState(id);
+      currentMapIdRef.current = id;
+      const maps = savedMapsRef.current;
+      const nextGrid = id ? maps.find((m) => m.id === id)?.state ?? null : null;
+      setMapGridState(nextGrid);
+      mapGridRef.current = nextGrid;
+      const gridPayload = {
+        metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData!, data: nextGrid },
+        content: {},
+      } as LogData;
+      const listPayload = {
+        metadata: { type: MAP_LIST_SYNC_TYPE, code: 0, sender: senderData!, data: { savedMaps: savedMapsRef.current, currentMapId: id } },
+        content: {},
+      } as LogData;
+      connectionsRef.current.forEach((c) => {
+        if (c.open) {
+          c.send(gridPayload);
+          c.send(listPayload);
+        }
+      });
+    }
+
+    function buildEmptyGrid(rows: number, cols: number): (string | null)[][] {
+      return Array.from({ length: rows }, () => Array.from({ length: cols }, () => null));
+    }
+
+    function createMap(name?: string) {
+      if (!isHost) return;
+      const maps = savedMapsRef.current;
+      const baseName = name?.trim() || `Mapa ${maps.length + 1}`;
+      const id = `map-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const state: MapGridState = { rows: 16, cols: 16, cells: buildEmptyGrid(16, 16), coverCells: {} };
+      const newMap: SavedMap = { id, name: baseName, state };
+      const nextMaps = [...maps, newMap];
+      setSavedMapsState(nextMaps);
+      savedMapsRef.current = nextMaps;
+      setCurrentMapIdState(id);
+      currentMapIdRef.current = id;
+      setMapGridState(state);
+      mapGridRef.current = state;
+      const gridPayload = { metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData!, data: state }, content: {} } as LogData;
+      const listPayload = { metadata: { type: MAP_LIST_SYNC_TYPE, code: 0, sender: senderData!, data: { savedMaps: nextMaps, currentMapId: id } }, content: {} } as LogData;
+      connectionsRef.current.forEach((c) => {
+        if (c.open) {
+          c.send(gridPayload);
+          c.send(listPayload);
+        }
+      });
+    }
+
+    function renameMap(id: string, newName: string) {
+      if (!isHost) return;
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      setSavedMapsState((prev) => prev.map((m) => (m.id === id ? { ...m, name: trimmed } : m)));
+      savedMapsRef.current = savedMapsRef.current.map((m) => (m.id === id ? { ...m, name: trimmed } : m));
+      broadcastMapList();
+    }
+
+    function deleteMap(id: string) {
+      if (!isHost) return;
+      const nextMaps = savedMapsRef.current.filter((m) => m.id !== id);
+      setSavedMapsState(nextMaps);
+      savedMapsRef.current = nextMaps;
+      const wasCurrent = currentMapIdRef.current === id;
+      if (wasCurrent) {
+        const nextId = nextMaps.length > 0 ? nextMaps[0].id : null;
+        const nextGrid = nextId ? nextMaps.find((m) => m.id === nextId)?.state ?? null : null;
+        setCurrentMapIdState(nextId);
+        currentMapIdRef.current = nextId;
+        setMapGridState(nextGrid);
+        mapGridRef.current = nextGrid;
+        const gridPayload = { metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData!, data: nextGrid }, content: {} } as LogData;
+        const listPayload = { metadata: { type: MAP_LIST_SYNC_TYPE, code: 0, sender: senderData!, data: { savedMaps: nextMaps, currentMapId: nextId } }, content: {} } as LogData;
+        connectionsRef.current.forEach((c) => {
+          if (c.open) {
+            c.send(gridPayload);
+            c.send(listPayload);
+          }
+        });
+      } else {
+        broadcastMapList();
+      }
+    }
+
+    function setMapBackgroundImage(dataUrl: string | null) {
+      if (!isHost) return;
+      const cid = currentMapIdRef.current;
+      const grid = mapGridRef.current;
+      if (!cid || !grid) return;
+      const nextState: MapGridState = dataUrl
+        ? { ...grid, backgroundImage: dataUrl, backgroundPositionX: 50, backgroundPositionY: 50 }
+        : (() => {
+            const { backgroundImage: _, backgroundPositionX: __x, backgroundPositionY: __y, ...rest } = grid;
+            return rest as MapGridState;
+          })();
+      setMapGrid(nextState);
+    }
+
+    function setMapBackgroundPosition(x: number, y: number) {
+      if (!isHost) return;
+      const cid = currentMapIdRef.current;
+      const grid = mapGridRef.current;
+      if (!cid || !grid) return;
+      const nextState: MapGridState = { ...grid, backgroundPositionX: x, backgroundPositionY: y };
+      setMapGrid(nextState);
     }
 
     function setInitiativeCombatants(listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) {
@@ -944,6 +1127,14 @@ export function MessageBus (props: any) {
         isHost,
         mapGrid,
         setMapGrid,
+        savedMaps,
+        currentMapId,
+        setCurrentMapId,
+        createMap,
+        renameMap,
+        deleteMap,
+        setMapBackgroundImage,
+        setMapBackgroundPosition,
         initiativeCombatants,
         setInitiativeCombatants,
         userData,

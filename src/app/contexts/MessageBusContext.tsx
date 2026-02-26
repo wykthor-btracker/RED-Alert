@@ -28,6 +28,18 @@ export interface MapGridState {
   cells: (string | null)[][];
   /** Host-painted cover cells: key "row,col" => optional health for destructible cover. */
   coverCells?: Record<string, { health?: number }>;
+  /** Optional background image for the grid (data URL). Stored per map, synced with state. */
+  backgroundImage?: string;
+  /** Background position as percentage (0–100). Default 50,50 = center. Used for drag-to-position. */
+  backgroundPositionX?: number;
+  backgroundPositionY?: number;
+}
+
+/** Saved map: id, display name, and full grid state. Persisted and synced by host. */
+export interface SavedMap {
+  id: string;
+  name: string;
+  state: MapGridState;
 }
 
 /** Combatant from Iniciativa; synced from host for map and damage/armor actions. */
@@ -81,6 +93,22 @@ export interface MessageBusContextValue {
   mapGrid: MapGridState | null;
   /** Host only: set grid dimensions/cells and broadcast to all connected nodes. */
   setMapGrid: (state: MapGridState | null) => void;
+  /** Saved maps (id, name, state). Host persists and syncs; only host can add/change/delete. */
+  savedMaps: SavedMap[];
+  /** Which map is currently shown (id or null). Only host can change; synced to clients. */
+  currentMapId: string | null;
+  /** Host only: switch which map is displayed and broadcast. */
+  setCurrentMapId: (id: string | null) => void;
+  /** Host only: create a new map, add to list, switch to it and broadcast. */
+  createMap: (name?: string) => void;
+  /** Host only: rename the map with given id. */
+  renameMap: (id: string, name: string) => void;
+  /** Host only: remove map by id; if it was current, switch to another or null. */
+  deleteMap: (id: string) => void;
+  /** Host only: set or clear the background image for the current map (data URL). */
+  setMapBackgroundImage: (dataUrl: string | null) => void;
+  /** Host only: set background position for the current map (x,y as percentage 0–100). */
+  setMapBackgroundPosition: (x: number, y: number) => void;
   /** Combatants from Iniciativa tab (id + name); host syncs to clients for map display. */
   initiativeCombatants: InitiativeCombatant[];
   /** Host only: set initiative list and broadcast to clients. Accepts new list or updater (prev => next). */
@@ -133,6 +161,14 @@ const defaultContextValue: MessageBusContextValue = {
   isHost: false,
   mapGrid: null,
   setMapGrid: () => {},
+  savedMaps: [],
+  currentMapId: null,
+  setCurrentMapId: () => {},
+  createMap: () => {},
+  renameMap: () => {},
+  deleteMap: () => {},
+  setMapBackgroundImage: () => {},
+  setMapBackgroundPosition: () => {},
   initiativeCombatants: [],
   setInitiativeCombatants: () => {},
   userData: null,
