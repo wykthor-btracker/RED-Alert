@@ -69,10 +69,14 @@ export function MessageBus (props: any) {
     }
 
     function send (data: LogData) {
-      if(isHost && connections.length) {
-        broadcast(data)
-      }
-      else if(conn) {
+      if (isHost) {
+        setMessageLog(prev => [...prev, data]);
+        const currentConnections = connectionsRef.current;
+        for (let i = 0; i < currentConnections.length; i++) {
+          const c = currentConnections[i];
+          if (c.open) c.send(data);
+        }
+      } else if (conn?.open) {
         sendToLog(data)
       } else {
         messageApi.error("Não estamos conectados em ninguém, parsa!")
