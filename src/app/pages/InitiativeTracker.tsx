@@ -1,4 +1,5 @@
-import { Button, Col, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
+import { Button, Col, FloatButton, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
+import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import QueueAnim from "rc-queue-anim";
 import { useState } from "react";
 import Fighter from "../comps/Fighter";
@@ -179,9 +180,8 @@ export default function InitiativeTracker(props: any) {
     const [tracking, setTracking]       = useState(false)
     const [addFighters, setAddFighters] = useState(false)
 
-    const sortedData = [...data].sort((a, b) => b.initiative - a.initiative)
     const currentTurnIndex = currentTurnId != null
-      ? sortedData.findIndex((d) => d.id === currentTurnId)
+      ? data.findIndex((d) => d.id === currentTurnId)
       : -1
     type FieldType = {
       name: string;
@@ -190,29 +190,29 @@ export default function InitiativeTracker(props: any) {
     };
     function nextTurn () {
       setTracking(true)
-      if (sortedData.length === 0) return
+      if (data.length === 0) return
       if (currentTurnId == null) {
-        setCurrentTurnId(sortedData[0].id)
+        setCurrentTurnId(data[0].id)
         return
       }
-      const idx = sortedData.findIndex((d) => d.id === currentTurnId)
-      if (idx === sortedData.length - 1) {
-        setCurrentTurnId(sortedData[0].id)
+      const idx = data.findIndex((d) => d.id === currentTurnId)
+      if (idx === data.length - 1) {
+        setCurrentTurnId(data[0].id)
       } else {
-        setCurrentTurnId(sortedData[idx + 1].id)
+        setCurrentTurnId(data[idx + 1].id)
       }
     }
     function previousTurn () {
-      if (sortedData.length === 0) return
+      if (data.length === 0) return
       if (currentTurnId == null) {
-        setCurrentTurnId(sortedData[sortedData.length - 1].id)
+        setCurrentTurnId(data[data.length - 1].id)
         return
       }
-      const idx = sortedData.findIndex((d) => d.id === currentTurnId)
+      const idx = data.findIndex((d) => d.id === currentTurnId)
       if (idx <= 0) {
-        setCurrentTurnId(sortedData[sortedData.length - 1].id)
+        setCurrentTurnId(data[data.length - 1].id)
       } else {
-        setCurrentTurnId(sortedData[idx - 1].id)
+        setCurrentTurnId(data[idx - 1].id)
       }
     }
     const onFinish: FormProps<FieldType>['onFinish'] = (values) => {
@@ -254,12 +254,12 @@ export default function InitiativeTracker(props: any) {
       })
     }
     function moveCombatant(fromIndex: number, toIndex: number) {
-      if (fromIndex === toIndex || toIndex < 0 || toIndex >= sortedData.length) return
+      if (fromIndex === toIndex || toIndex < 0 || toIndex >= data.length) return
       setData((prev) => {
-        const sorted = [...prev].sort((a, b) => b.initiative - a.initiative)
-        const [removed] = sorted.splice(fromIndex, 1)
-        sorted.splice(toIndex, 0, removed)
-        return sorted.map((d, i) => ({ ...d, initiative: sorted.length - 1 - i }))
+        const next = [...prev]
+        const [removed] = next.splice(fromIndex, 1)
+        next.splice(toIndex, 0, removed)
+        return next
       })
     }
     const onFinishFailed: FormProps<FieldType>['onFinishFailed'] = (errorInfo) => {
@@ -375,7 +375,7 @@ export default function InitiativeTracker(props: any) {
         <Col span={24} style={{overflowY: "scroll", height: "60vh"}}>
             <List 
               locale={{emptyText: "."}}
-              dataSource={sortedData} 
+              dataSource={data} 
               renderItem={(item, index)=>(
                 <QueueAnim delay={150} key={item.id}>
                   <DraggableFighter
@@ -384,11 +384,29 @@ export default function InitiativeTracker(props: any) {
                     currentTurn={tracking ? currentTurnIndex : -1}
                     onInitiativeChange={onInitiativeChange}
                     onMove={moveCombatant}
-                    totalCount={sortedData.length}
+                    totalCount={data.length}
                   />
                 </QueueAnim>
               )}/>
         </Col>
+        {data.length > 0 && (
+          <FloatButton.Group
+            shape="square"
+            style={{ bottom: 100, insetInlineEnd: 24 }}
+            trigger="hover"
+          >
+            <FloatButton
+              tooltip="Previous Turn"
+              icon={<LeftOutlined />}
+              onClick={previousTurn}
+            />
+            <FloatButton
+              tooltip="Next Turn"
+              icon={<RightOutlined />}
+              onClick={nextTurn}
+            />
+          </FloatButton.Group>
+        )}
       </Row>
     )
   }

@@ -51,7 +51,7 @@ export default function Home() {
             <Tabs defaultActiveKey="1" items={items}
               tabBarExtraContent={{right: <SideMenu/>}}/>
           </Content>
-          <Footer style={{minHeight: "40vh", backgroundColor: "white"}}>
+          <Footer style={{ flex: "0 0 auto", minHeight: 0, backgroundColor: "white" }}>
             <ActivityLog/>
           </Footer>
         </Layout>
