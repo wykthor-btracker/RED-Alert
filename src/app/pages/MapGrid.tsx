@@ -7,12 +7,9 @@ import {
   EyeOutlined,
   FireOutlined,
   HeartOutlined,
-  MedicineBoxOutlined,
   MessageOutlined,
+  PushpinOutlined,
   ScissorOutlined,
-  SmileOutlined,
-  SoundOutlined,
-  SwapOutlined,
   ThunderboltOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
@@ -40,28 +37,26 @@ const SHOTGUN_DIRECTIONS: [number, number][] = [[0, 1], [1, 1], [1, 0], [1, -1],
 /** Single critical injury; category for Head vs Body matrix. */
 export type CPRCriticalInjury = { id: string; name: string; description: string; icon: ReactNode; category: "head" | "body" };
 
-/** Cyberpunk RED critical injuries (Ranged 1d10 + Melee 1d10 + Head/Body refs). id used for combatant.criticalInjuries[]. */
+/** Cyberpunk RED critical injuries from official table only. id used for combatant.criticalInjuries[]. */
 export const CPR_CRITICAL_INJURIES: CPRCriticalInjury[] = [
-  { id: "broken-ribs", name: "Costelas partidas", description: "-2 em MOVE, DEX e testes de skill baseados em CORPO.", icon: <ThunderboltOutlined />, category: "body" },
-  { id: "collapsed-lung", name: "Pulmão colapsado", description: "-2 em todas as ações; teste de morte todo turno até tratar.", icon: <HeartOutlined />, category: "body" },
-  { id: "broken-arm", name: "Braço partido", description: "Não pode usar armas duas mãos; -4 em ataques corpo a corpo e à distância.", icon: <ApiOutlined />, category: "body" },
-  { id: "crushed-fingers", name: "Dedos esmagados", description: "Não pode usar essa mão; -4 em ações que a usem.", icon: <ScissorOutlined />, category: "body" },
-  { id: "gouged-eye", name: "Olho perfurado", description: "-4 em ataques à distância; -2 em Percepção.", icon: <EyeOutlined />, category: "head" },
-  { id: "broken-leg", name: "Perna partida", description: "MOVE pela metade; não pode esquivar.", icon: <DisconnectOutlined />, category: "body" },
-  { id: "internal-bleeding", name: "Hemorragia interna", description: "2 de sangramento por turno; cirurgia em 1h ou morte.", icon: <MedicineBoxOutlined />, category: "body" },
-  { id: "spinal-injury", name: "Lesão na coluna", description: "-4 em todas as ações; teste de morte todo turno.", icon: <ColumnHeightOutlined />, category: "body" },
-  { id: "torn-muscle", name: "Músculo rasgado", description: "-2 em todas as ações físicas e em Iniciativa.", icon: <FireOutlined />, category: "body" },
-  { id: "whiplash", name: "Whiplash", description: "-2 em Iniciativa; -4 em Brawling e Melee Weapon.", icon: <SwapOutlined />, category: "head" },
-  { id: "cracked-skull", name: "Crânio rachado", description: "Headshots x3 em vez de x2; +1 penalidade teste de morte.", icon: <WarningOutlined />, category: "head" },
-  { id: "broken-jaw", name: "Mandíbula partida", description: "Não pode falar; -4 em ações de fala.", icon: <MessageOutlined />, category: "head" },
-  { id: "dislocated-shoulder", name: "Ombro deslocado", description: "Não pode usar esse braço; -4 em melee/ranged.", icon: <ApiOutlined />, category: "body" },
-  { id: "broken-hand", name: "Mão partida", description: "Não pode usar essa mão; -4 em ações que a usem.", icon: <ScissorOutlined />, category: "body" },
-  { id: "internal-injury", name: "Lesão interna", description: "2 de sangramento por turno; cirurgia em 1h ou morte.", icon: <MedicineBoxOutlined />, category: "body" },
-  { id: "damaged-spine", name: "Coluna danificada", description: "-4 em todas as ações; teste de morte todo turno.", icon: <ColumnHeightOutlined />, category: "body" },
-  { id: "knocked-out-teeth", name: "Dentes arrancados", description: "-2 em testes de Cool; não pode usar Charismatic Impact.", icon: <SmileOutlined />, category: "head" },
-  { id: "lost-eye", name: "Olho perdido", description: "-4 em ataques à distância e Percepção (visão); +1 penalidade teste de morte.", icon: <EyeOutlined />, category: "head" },
-  { id: "brain-injury", name: "Lesão cerebral", description: "-2 em todas as ações; +1 penalidade teste de morte.", icon: <WarningOutlined />, category: "head" },
-  { id: "damaged-ear", name: "Ouvido danificado", description: "Não pode mover no turno seguinte após mover 4m+; -2 Percepção (audição).", icon: <SoundOutlined />, category: "head" },
+  // Body (table order 2–12)
+  { id: "arm-dismembered", name: "Desmembramento de Braço", description: "O Braço Desmembrado se foi. Você deixa cair qualquer item na mão desse braço desmembrado imediatamente. O Death Save Base é aumentada em 1.", icon: <ApiOutlined />, category: "body" },
+  { id: "hand-dismembered", name: "Desmembramento de Mão", description: "A Mão Desmembrada se foi. Você deixa cair qualquer item na mão desmembrada imediatamente. O Death Save Base é aumentada em 1.", icon: <ScissorOutlined />, category: "body" },
+  { id: "collapsed-lung", name: "Pulmão Colapsado", description: "-2 no MOVE (mínimo 1). O Death Save Base é aumentada em 1.", icon: <HeartOutlined />, category: "body" },
+  { id: "broken-ribs", name: "Costelas Quebradas", description: "No final de cada turno, onde você se move mais do que 4m/yds a pé, você sofre novamente o dano bônus desta lesão crítica diretamente nos seus Pontos de Vida.", icon: <ThunderboltOutlined />, category: "body" },
+  { id: "broken-arm", name: "Braço Quebrado", description: "O Braço Quebrado não pode ser usado. Você deixa cair quaisquer itens na mão desse braço imediatamente.", icon: <ApiOutlined />, category: "body" },
+  { id: "lodged-object", name: "Objeto Alojado", description: "No final de cada turno, onde você se move mais do que 4m/yds a pé, você sofre novamente o dano bônus desta Lesão Crítica diretamente nos seus Pontos de Vida.", icon: <PushpinOutlined />, category: "body" },
+  { id: "broken-leg", name: "Perna Quebrada", description: "-4 no MOVE (mínimo 1).", icon: <DisconnectOutlined />, category: "body" },
+  { id: "torn-muscle", name: "Rompimento no Músculo", description: "-2 nos Ataques corpo a corpo.", icon: <FireOutlined />, category: "body" },
+  { id: "spinal-injury", name: "Lesão Espinhal", description: "No próximo Turno, você não pode fazer uma Ação, mas ainda pode fazer uma Ação de Movimento. O Death Save Base é aumentada em 1.", icon: <ColumnHeightOutlined />, category: "body" },
+  { id: "crushed-fingers", name: "Dedos Triturados/Esmagados", description: "-4 para todas as ações envolvendo esta mão.", icon: <ScissorOutlined />, category: "body" },
+  { id: "leg-dismembered", name: "Perna Desmembrada", description: "A Perna Desmembrada se foi. -6 no MOVE (mínimo 1). Você não pode desviar de ataques. O Death Save Base é aumentada em 1.", icon: <DisconnectOutlined />, category: "body" },
+  // Head (table order 2–6)
+  { id: "lost-eye", name: "Olho Perdido", description: "O Olho Perdido se foi. -4 para Ataques a Distância e Testes de Percepção envolvendo visão. O Death Save Base é aumentada em 1.", icon: <EyeOutlined />, category: "head" },
+  { id: "brain-injury", name: "Dano Cerebral", description: "-2 para todas as Ações. O Death Save Base é aumentada em 1.", icon: <WarningOutlined />, category: "head" },
+  { id: "gouged-eye", name: "Olho danificado", description: "-2 para Ataques a Distância e Teste de Percepção envolvendo visão.", icon: <EyeOutlined />, category: "head" },
+  { id: "concussion", name: "Contusão", description: "-2 para todas as Ações.", icon: <WarningOutlined />, category: "head" },
+  { id: "broken-jaw", name: "Maxilar Quebrado", description: "-4 para todas as Ações envolvendo fala.", icon: <MessageOutlined />, category: "head" },
 ];
 
 const CPR_HEAD_INJURIES = CPR_CRITICAL_INJURIES.filter((i) => i.category === "head");
@@ -493,8 +488,8 @@ export default function MapGrid() {
       } as LogData);
     }
   };
-  const [rowsInput, setRowsInput] = useState(mapGrid?.rows ?? 4);
-  const [colsInput, setColsInput] = useState(mapGrid?.cols ?? 4);
+  const [rowsInput, setRowsInput] = useState(mapGrid?.rows ?? 16);
+  const [colsInput, setColsInput] = useState(mapGrid?.cols ?? 16);
   const [paintMode, setPaintMode] = useState(false);
   const [coverHp, setCoverHp] = useState<number | null>(null);
   /** Dropdown: which cell (with combatant) is showing the menu */
@@ -889,7 +884,7 @@ export default function MapGrid() {
                   min={1}
                   max={24}
                   value={rowsInput}
-                  onChange={(v) => setRowsInput(Number(v) ?? 4)}
+                  onChange={(v) => setRowsInput(Number(v) ?? 16)}
                   style={{ width: 72, marginLeft: 8 }}
                 />
               </Col>
@@ -899,7 +894,7 @@ export default function MapGrid() {
                   min={1}
                   max={24}
                   value={colsInput}
-                  onChange={(v) => setColsInput(Number(v) ?? 4)}
+                  onChange={(v) => setColsInput(Number(v) ?? 16)}
                   style={{ width: 72, marginLeft: 8 }}
                 />
               </Col>

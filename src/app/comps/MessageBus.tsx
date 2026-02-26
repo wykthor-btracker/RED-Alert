@@ -9,6 +9,7 @@ const KEEPALIVE_TYPE = "keepalive";
 const SYNC_TYPE = "sync";
 const MAP_GRID_SYNC_TYPE = "mapGridSync";
 const INITIATIVE_SYNC_TYPE = "initiativeSync";
+const REQUEST_INITIAL_SYNC_TYPE = "requestInitialSync";
 
 function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -266,21 +267,31 @@ export function MessageBus (props: any) {
               if (c.open) c.send({ metadata: { type: "peerList", code: 0, sender: senderData, data: { peers: labels } }, content: {} });
             });
           }
-          setTimeout(() => {
-            sendPeerListToAll([...connectionsRef.current, connPeer]);
-            const grid = mapGridRef.current;
-            if (grid && connPeer.open)
-              connPeer.send({ metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData, data: grid }, content: {} });
+          function sendInitialSyncToPeer(peerConn: DataConnection) {
+            if (!peerConn.open) return;
             const initiative = initiativeCombatantsRef.current;
-            if (initiative.length > 0 && connPeer.open)
-              connPeer.send({ metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData, data: initiative }, content: {} });
-          }, 0);
+            if (initiative.length > 0) {
+              const list = initiative.map((c) => ({ ...c }));
+              peerConn.send({ metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData, data: list }, content: {} });
+            }
+            const grid = mapGridRef.current;
+            if (grid) peerConn.send({ metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData, data: grid }, content: {} });
+          }
+
+          connPeer.on("open", () => {
+            sendPeerListToAll([...connectionsRef.current, connPeer]);
+            sendInitialSyncToPeer(connPeer);
+          });
 
           connPeer.on("data", (data) => {
             const payload = data as LogData;
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
             if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) return;
             if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) return;
+            if (payload.metadata?.type === REQUEST_INITIAL_SYNC_TYPE) {
+              sendInitialSyncToPeer(connPeer);
+              return;
+            }
             if (payload.metadata?.type === "displayName") {
               const name = payload.metadata?.data?.name as string | undefined;
               if (name != null) {
@@ -393,38 +404,51 @@ export function MessageBus (props: any) {
           setConn(null)
           setConnected(false)
         })
-        dataConn.on('open', () => {
+        // Attach data handler immediately so we don't miss initial sync (host may send before "open" fires)
+        dataConn.on("data", (data: any) => {
+          const payload = data as LogData;
+          if (payload.metadata?.type === KEEPALIVE_TYPE) return;
+          if (payload.metadata?.type === SYNC_TYPE) {
+            const d = payload.metadata?.data;
+            if (d?.action === "replace" && Array.isArray(d.log)) setMessageLog(d.log);
+            if (d?.action === "delete" && d?.id) setMessageLog((prev) => prev.filter((m) => m.id !== d.id));
+            return;
+          }
+          if (payload.metadata?.type === "peerList") {
+            setPeerList(payload.metadata?.data?.peers ?? []);
+            return;
+          }
+          if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) {
+            const grid = payload.metadata?.data as MapGridState | null | undefined;
+            if (grid && typeof grid.rows === "number" && typeof grid.cols === "number" && Array.isArray(grid.cells))
+              setMapGridState(grid);
+            else if (grid === null) setMapGridState(null);
+            return;
+          }
+          if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) {
+            const list = payload.metadata?.data as InitiativeCombatant[] | undefined;
+            if (Array.isArray(list)) {
+              const normalized = list.map((c) => ({
+                ...c,
+                name: typeof c?.name === "string" ? c.name : (c?.id ?? ""),
+              }));
+              setInitiativeCombatantsState(normalized);
+            } else {
+              setInitiativeCombatantsState([]);
+            }
+            return;
+          }
+          setMessageLog((prev) => [...prev, { ...payload, id: payload.id ?? nextId() }]);
+        });
+        dataConn.on("open", () => {
           if (peerRef.current !== peer) return
           clearConnectionTimeout()
           setConn(dataConn)
           setConnected(true)
-          dataConn.on("data", (data: any) => {
-            const payload = data as LogData;
-            if (payload.metadata?.type === KEEPALIVE_TYPE) return;
-            if (payload.metadata?.type === SYNC_TYPE) {
-              const d = payload.metadata?.data;
-              if (d?.action === "replace" && Array.isArray(d.log)) setMessageLog(d.log);
-              if (d?.action === "delete" && d?.id) setMessageLog((prev) => prev.filter((m) => m.id !== d.id));
-              return;
-            }
-            if (payload.metadata?.type === "peerList") {
-              setPeerList(payload.metadata?.data?.peers ?? []);
-              return;
-            }
-            if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) {
-              const grid = payload.metadata?.data as MapGridState | null | undefined;
-              if (grid && typeof grid.rows === "number" && typeof grid.cols === "number" && Array.isArray(grid.cells))
-                setMapGridState(grid);
-              else if (grid === null) setMapGridState(null);
-              return;
-            }
-            if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) {
-              const list = payload.metadata?.data as InitiativeCombatant[] | undefined;
-              setInitiativeCombatantsState(Array.isArray(list) ? list : []);
-              return;
-            }
-            setMessageLog((prev) => [...prev, { ...payload, id: payload.id ?? nextId() }]);
-          });
+          dataConn.send({
+            metadata: { type: REQUEST_INITIAL_SYNC_TYPE, code: 0, sender: senderData, data: {} },
+            content: {},
+          } as LogData);
           clearKeepaliveInterval()
           keepaliveIntervalRef.current = setInterval(() => {
             if (peerRef.current !== peer || !dataConn.open) {
@@ -522,7 +546,7 @@ export function MessageBus (props: any) {
       setInitiativeCombatantsState(next);
       initiativeCombatantsRef.current = next;
       const payload = {
-        metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: next },
+        metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: next.map((c) => ({ ...c })) },
         content: {},
       } as LogData;
       connectionsRef.current.forEach((c) => {
