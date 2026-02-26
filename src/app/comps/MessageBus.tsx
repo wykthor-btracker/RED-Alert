@@ -4,6 +4,8 @@ import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
 
 const CONNECTION_TIMEOUT_MS = 15000;
+const KEEPALIVE_INTERVAL_MS = 25_000;
+const KEEPALIVE_TYPE = "keepalive";
 
 export function MessageBus (props: any) {
     const [messageLog, setMessageLog]   = useState<Array<LogData>>([
@@ -33,12 +35,21 @@ export function MessageBus (props: any) {
     const peerRef = useRef<Peer | null>(null);
     const connectionsRef = useRef<Array<DataConnection>>([]);
     const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     connectionsRef.current = connections;
+
+    function clearKeepaliveInterval() {
+      if (keepaliveIntervalRef.current) {
+        clearInterval(keepaliveIntervalRef.current);
+        keepaliveIntervalRef.current = null;
+      }
+    }
 
     useEffect(() => {
       return () => {
         connectionTimeoutRef.current && clearTimeout(connectionTimeoutRef.current);
+        clearKeepaliveInterval();
         peerRef.current?.destroy();
         peerRef.current = null;
         setConn(null);
@@ -132,7 +143,9 @@ export function MessageBus (props: any) {
           setMessageLog(prev => [...prev, messageReport])
 
           connPeer.on("data", (data) => {
-            broadcast(data as LogData);
+            const payload = data as LogData;
+            if (payload.metadata?.type === KEEPALIVE_TYPE) return;
+            broadcast(payload);
           })
           connPeer.on("close", () => {
             setConnections(prev => prev.filter(c => c !== connPeer));
@@ -156,10 +169,12 @@ export function MessageBus (props: any) {
       const peer = new Peer()
       peerRef.current = peer;
       peer.on("disconnected", () => {
+        clearKeepaliveInterval()
         setConnected(false)
       })
       peer.on("error", (err) => {
         clearConnectionTimeout()
+        clearKeepaliveInterval()
         messageApi.destroy()
         messageApi.error(err?.message ?? "Erro ao conectar.")
         setConnected(false)
@@ -176,6 +191,7 @@ export function MessageBus (props: any) {
         connectionTimeoutRef.current = setTimeout(() => {
           if (!dataConn.open) {
             clearConnectionTimeout()
+            clearKeepaliveInterval()
             messageApi.destroy()
             messageApi.error("Conexão expirou. O host pode estar offline.")
             setConn(null)
@@ -187,12 +203,14 @@ export function MessageBus (props: any) {
 
         dataConn.on("error", () => {
           clearConnectionTimeout()
+          clearKeepaliveInterval()
           messageApi.destroy()
           setConn(null)
           setConnected(false)
         })
         dataConn.on("close", () => {
           clearConnectionTimeout()
+          clearKeepaliveInterval()
           setConn(null)
           setConnected(false)
         })
@@ -202,14 +220,33 @@ export function MessageBus (props: any) {
           setConn(dataConn)
           setConnected(true)
           dataConn.on("data", (data: any) => {
-            setMessageLog(prev => [...prev, data as LogData])
+            const payload = data as LogData
+            if (payload.metadata?.type === KEEPALIVE_TYPE) return
+            setMessageLog(prev => [...prev, payload])
           })
+          clearKeepaliveInterval()
+          keepaliveIntervalRef.current = setInterval(() => {
+            if (peerRef.current !== peer || !dataConn.open) {
+              clearKeepaliveInterval()
+              return
+            }
+            dataConn.send({
+              content: {},
+              metadata: {
+                type: KEEPALIVE_TYPE,
+                code: 0,
+                sender: senderData,
+                data: {},
+              },
+            } as LogData)
+          }, KEEPALIVE_INTERVAL_MS)
         });
       })
     }
 
     function disconnect () {
       clearConnectionTimeout()
+      clearKeepaliveInterval()
       conn?.close()
       peerRef.current?.destroy()
       peerRef.current = null

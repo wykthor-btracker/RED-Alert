@@ -1,8 +1,59 @@
 import { Button, Col, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
-import QueueAnim  from "rc-queue-anim"
+import QueueAnim from "rc-queue-anim";
 import { useState } from "react";
 import Fighter from "../comps/Fighter";
-const { Title } = Typography
+const { Title } = Typography;
+
+function DraggableFighter(props: {
+  item: { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; initiative: number };
+  index: number;
+  currentTurn: number;
+  onInitiativeChange: (id: string, value: number) => void;
+  onMove: (fromIndex: number, toIndex: number) => void;
+  totalCount: number;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("text/plain", String(props.index));
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOver(true);
+  };
+  const handleDragLeave = () => setDragOver(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const from = parseInt(e.dataTransfer.getData("text/plain"), 10);
+    if (Number.isNaN(from) || from === props.index) return;
+    props.onMove(from, props.index);
+  };
+  return (
+    <div
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      style={{
+        cursor: "grab",
+        opacity: dragOver ? 0.6 : 1,
+        border: dragOver ? "2px dashed #1677ff" : "2px solid transparent",
+        borderRadius: 8,
+        marginBottom: 8,
+      }}
+    >
+      <Fighter
+        item={props.item}
+        index={props.index}
+        currentTurn={props.currentTurn}
+        onInitiativeChange={props.onInitiativeChange}
+      />
+    </div>
+  );
+}
 const mobs = {
     mooks: [
         {
@@ -108,8 +159,13 @@ const mobs = {
 }
 
 
+function nextId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function InitiativeTracker(props: any) {
     interface Idata {
+      id: string;
       name: string;
       currentHealth: number;
       maxHealth: number;
@@ -119,9 +175,14 @@ export default function InitiativeTracker(props: any) {
     }
     const [data, setData]               = useState<Array<Idata>>([])
     const [toggleForm, setToggleForm]   = useState(false)
-    const [currentTurn, setCurrentTurn] = useState(0)
+    const [currentTurnId, setCurrentTurnId] = useState<string | null>(null)
     const [tracking, setTracking]       = useState(false)
     const [addFighters, setAddFighters] = useState(false)
+
+    const sortedData = [...data].sort((a, b) => b.initiative - a.initiative)
+    const currentTurnIndex = currentTurnId != null
+      ? sortedData.findIndex((d) => d.id === currentTurnId)
+      : -1
     type FieldType = {
       name: string;
       SP: string;
@@ -129,44 +190,77 @@ export default function InitiativeTracker(props: any) {
     };
     function nextTurn () {
       setTracking(true)
-      if(currentTurn==data.length-1) {
-        setCurrentTurn(0)
+      if (sortedData.length === 0) return
+      if (currentTurnId == null) {
+        setCurrentTurnId(sortedData[0].id)
+        return
       }
-      else {
-        setCurrentTurn(currentTurn+1)
+      const idx = sortedData.findIndex((d) => d.id === currentTurnId)
+      if (idx === sortedData.length - 1) {
+        setCurrentTurnId(sortedData[0].id)
+      } else {
+        setCurrentTurnId(sortedData[idx + 1].id)
       }
     }
     function previousTurn () {
-      if(currentTurn==0) {
-        setCurrentTurn(data.length-1)
-      } else {
-        setCurrentTurn(currentTurn-1)
+      if (sortedData.length === 0) return
+      if (currentTurnId == null) {
+        setCurrentTurnId(sortedData[sortedData.length - 1].id)
+        return
       }
-  
+      const idx = sortedData.findIndex((d) => d.id === currentTurnId)
+      if (idx <= 0) {
+        setCurrentTurnId(sortedData[sortedData.length - 1].id)
+      } else {
+        setCurrentTurnId(sortedData[idx - 1].id)
+      }
     }
     const onFinish: FormProps<FieldType>['onFinish'] = (values) => {
-      setData([...data, {
-        name: values.name,
-      currentHealth: Number(values.health),
-      maxHealth: Number(values.health),
-      stoppingPower: Number(values.SP),
-      stoppingPowerMax: Number(values.SP),
-      initiative: 0
-      }])
-      console.log('Success:', values);
+      setData((prev) => {
+        const next = [...prev, {
+          id: nextId(),
+          name: values.name,
+          currentHealth: Number(values.health),
+          maxHealth: Number(values.health),
+          stoppingPower: Number(values.SP),
+          stoppingPowerMax: Number(values.SP),
+          initiative: 0,
+        }]
+        return next.sort((a, b) => b.initiative - a.initiative)
+      })
     };
     function addNPC (values: any) {
-        let dataCopy = data
-        let initRoll = ((Math.random()*100)%10)+1
-        dataCopy.push({
+        const initRoll = Math.floor(Math.random() * 10) + 1
+        setData((prev) => {
+          const next = [...prev, {
+            id: nextId(),
             name: values.name,
-            currentHealth:    Number(values.health),
-            maxHealth:        Number(values.health),
-            stoppingPower:    Number(values.SP),
+            currentHealth: Number(values.health),
+            maxHealth: Number(values.health),
+            stoppingPower: Number(values.SP),
             stoppingPowerMax: Number(values.SP),
-            initiative:       Number(initRoll)
+            initiative: initRoll,
+          }]
+          return next.sort((a, b) => b.initiative - a.initiative)
         })
-        setData([...dataCopy])
+    }
+    function onInitiativeChange(id: string, value: number) {
+      const intValue = Math.round(Number(value)) || 0
+      setData((prev) => {
+        const next = prev.map((d) =>
+          d.id === id ? { ...d, initiative: intValue } : d
+        )
+        return next.sort((a, b) => b.initiative - a.initiative)
+      })
+    }
+    function moveCombatant(fromIndex: number, toIndex: number) {
+      if (fromIndex === toIndex || toIndex < 0 || toIndex >= sortedData.length) return
+      setData((prev) => {
+        const sorted = [...prev].sort((a, b) => b.initiative - a.initiative)
+        const [removed] = sorted.splice(fromIndex, 1)
+        sorted.splice(toIndex, 0, removed)
+        return sorted.map((d, i) => ({ ...d, initiative: sorted.length - 1 - i }))
+      })
     }
     const onFinishFailed: FormProps<FieldType>['onFinishFailed'] = (errorInfo) => {
       console.log('Failed:', errorInfo);
@@ -180,7 +274,7 @@ export default function InitiativeTracker(props: any) {
                 <Button 
                   onClick={()=>{
                     setData([])
-                    setCurrentTurn(0)
+                    setCurrentTurnId(null)
                   }}
                     >Clear battle</Button>
               </Col>
@@ -281,15 +375,17 @@ export default function InitiativeTracker(props: any) {
         <Col span={24} style={{overflowY: "scroll", height: "60vh"}}>
             <List 
               locale={{emptyText: "."}}
-              dataSource={data} 
+              dataSource={sortedData} 
               renderItem={(item, index)=>(
-                <QueueAnim delay={150}>
-                  <div key={index}>
-                    <Fighter 
-                      item={item} 
-                      index={index} 
-                      currentTurn={tracking ? currentTurn : -1}/>
-                  </div>
+                <QueueAnim delay={150} key={item.id}>
+                  <DraggableFighter
+                    item={item}
+                    index={index}
+                    currentTurn={tracking ? currentTurnIndex : -1}
+                    onInitiativeChange={onInitiativeChange}
+                    onMove={moveCombatant}
+                    totalCount={sortedData.length}
+                  />
                 </QueueAnim>
               )}/>
         </Col>

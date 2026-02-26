@@ -1,4 +1,4 @@
-import { Badge, Button, Col, Input, List, Progress, Row, Tooltip } from "antd";
+import { Badge, Button, Col, Input, InputNumber, List, Progress, Row, Tooltip } from "antd";
 import { useEffect, useRef, useState } from "react";
 
 export default function Fighter(props: any) {
@@ -72,7 +72,24 @@ export default function Fighter(props: any) {
         <List.Item ref={currentRef} key={props.index}>
           <Row style={style}>
             <Col span={24}>
-              {stats.name}
+              <Row justify="space-between" align="middle">
+                <Col>{stats.name}</Col>
+                {props.onInitiativeChange != null && (
+                  <Col>
+                    <span style={{ marginRight: 8 }}>Inic.:</span>
+                    <InputNumber
+                      min={0}
+                      max={99}
+                      step={1}
+                      value={Math.round(Number(props.item.initiative))}
+                      onChange={(v) => props.onInitiativeChange?.(props.item.id, Math.round(Number(v) ?? 0))}
+                      parser={(v) => Math.round(Number(v) || 0)}
+                      size="small"
+                      style={{ width: 56 }}
+                    />
+                  </Col>
+                )}
+              </Row>
             </Col>
             <Col span={12}>
               <span>
