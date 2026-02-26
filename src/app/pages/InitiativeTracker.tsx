@@ -355,18 +355,18 @@ export default function InitiativeTracker(props: any) {
                     setCurrentTurnId(null)
                     broadcastUpdate("Iniciativa: batalha limpa")
                   }}
-                    >Clear battle</Button>
+                    >Limpar batalha</Button>
               </Col>
               <Col>
                 <Switch onChange={setToggleForm}/>
               </Col>
-              <Col>Add new combatant</Col>
+              <Col>Adicionar novo combatente</Col>
               <Col>
                 <Switch onChange={setAddFighters}/>
               </Col>
-              <Col>Add preset combatant</Col>
-              <Col><Button onClick={previousTurn}>Previous Turn</Button></Col>
-              <Col><Button onClick={nextTurn}>Next Turn</Button></Col>
+              <Col>Adicionar combatente pré-definido</Col>
+              <Col><Button onClick={previousTurn}>Turno anterior</Button></Col>
+              <Col><Button onClick={nextTurn}>Próximo turno</Button></Col>
             </Row>
             {toggleForm ?
             <Form
@@ -381,21 +381,21 @@ export default function InitiativeTracker(props: any) {
             autoComplete="off"
           >
             <Form.Item<FieldType>
-              label="Name"
+              label="Nome"
               name="name"
             >
               <Input />
             </Form.Item>
         
             <Form.Item<FieldType>
-              label="Stopping Power"
+              label="Poder de parada (SP)"
               name="SP"
             >
               <Input />
             </Form.Item>
         
             <Form.Item<FieldType>
-              label="Health"
+              label="Vida (HP)"
               name="health"
             >
               <Input />
@@ -403,7 +403,7 @@ export default function InitiativeTracker(props: any) {
         
             <Form.Item wrapperCol={{ offset: 8, span: 16 }}>
               <Button type="primary" htmlType="submit">
-                Submit
+                Adicionar
               </Button>
             </Form.Item>
             </Form>: null
@@ -416,35 +416,35 @@ export default function InitiativeTracker(props: any) {
               <Col span={4}>
                   <NpcCategory 
                     mobs={mobs.mooks}
-                    title="Mooks"
+                    title="Capangas"
                     delay={100}
                     addNPC={addNPC}/>
               </Col>
               <Col span={4}>
                   <NpcCategory 
                     mobs={mobs.lieutenant}
-                    title="Lieutenants"
+                    title="Tenentes"
                     delay={500}
                     addNPC={addNPC}/>
               </Col>
               <Col span={4}>
                   <NpcCategory 
                     mobs={mobs.miniboss}
-                    title="Mini-Bosses"
+                    title="Sub-chefes"
                     delay={900}
                     addNPC={addNPC}/>
               </Col>
               <Col span={4}>
                   <NpcCategory 
                     mobs={mobs.boss}
-                    title="BOSS"
+                    title="Chefe"
                     delay={1300}
                     addNPC={addNPC}/>
               </Col>
               <Col span={4}>
                   <NpcCategory 
                     mobs={mobs.players}
-                    title="Players"
+                    title="Jogadores"
                     delay={1700}
                     addNPC={addNPC}/>
               </Col>
@@ -478,12 +478,12 @@ export default function InitiativeTracker(props: any) {
             trigger="hover"
           >
             <FloatButton
-              tooltip="Previous Turn"
+              tooltip="Turno anterior"
               icon={<LeftOutlined />}
               onClick={previousTurn}
             />
             <FloatButton
-              tooltip="Next Turn"
+              tooltip="Próximo turno"
               icon={<RightOutlined />}
               onClick={nextTurn}
             />
@@ -496,7 +496,7 @@ export default function InitiativeTracker(props: any) {
   function NpcCategory (props: any) {
     return <Col span={24} style={{textAlign: "center"}}>
         <QueueAnim delay={props.delay} leaveReverse={true}>
-          <Title level={2} key={"mook-title"}>{props.title}™</Title>
+          <Title level={2} key={"mook-title"} style={{ whiteSpace: "nowrap", lineHeight: 1.2, marginBottom: 8 }}>{props.title}™</Title>
           {props.mobs.map((mob: {name: string, health: string, stoppingPower: string})=>{
               return <div key={mob.name}>
               <Button

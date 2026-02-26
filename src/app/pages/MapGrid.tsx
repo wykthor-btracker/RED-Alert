@@ -1,11 +1,37 @@
 'use client';
 
-import { Button, Col, Dropdown, InputNumber, MenuProps, message, Modal, Row, Switch } from "antd";
+import { Button, Checkbox, Col, Dropdown, InputNumber, MenuProps, message, Modal, Row, Switch } from "antd";
 import { useContext, useMemo, useState } from "react";
 import { LogData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
 
 const DRAG_TYPE_INITIATIVE = "application/x-initiative-combatant";
 const DRAG_TYPE_MAP_CELL = "application/x-map-cell";
+
+/** Default scale: 1 cell = 1m. Used for distance display (Mirar) and for AoE templates. */
+export const CELL_SCALE_METERS = 1;
+
+/** CPR grenade: 10m×10m (book: 5×5 squares at 2m). With 1m/cell, radius 5 → 11×11 cells. */
+const GRENADE_RADIUS_CELLS = 5;
+
+/** CPR shotgun shells: 6m spread "covering 3 squares" (2m squares) = 6 cells in a cone in front of shooter. Not implemented yet. */
+const SHOTGUN_RANGE_CELLS = 6;
+
+/** Cells in a square blast centered at (centerR, centerC) with given radius, clamped to grid [0,rows)x[0,cols). */
+function getCellsInBlast(
+  centerR: number,
+  centerC: number,
+  radiusCells: number,
+  rows: number,
+  cols: number
+): { r: number; c: number }[] {
+  const out: { r: number; c: number }[] = [];
+  for (let r = centerR - radiusCells; r <= centerR + radiusCells; r++) {
+    for (let c = centerC - radiusCells; c <= centerC + radiusCells; c++) {
+      if (r >= 0 && r < rows && c >= 0 && c < cols) out.push({ r, c });
+    }
+  }
+  return out;
+}
 
 function buildEmptyGrid(rows: number, cols: number): (string | null)[][] {
   return Array.from({ length: rows }, () => Array.from({ length: cols }, () => null));
@@ -177,6 +203,13 @@ export default function MapGrid() {
   const [mirarFrom, setMirarFrom] = useState<{ r: number; c: number } | null>(null);
   /** Cell hovered while awaiting second click (to show Bresenham line preview) */
   const [mirarHoveredCell, setMirarHoveredCell] = useState<{ r: number; c: number } | null>(null);
+  /** Granada (CPR grenade): when true, click sets blast center; center set shows 10m template and allows Apply AoE damage */
+  const [granadaMode, setGranadaMode] = useState(false);
+  const [granadaCenter, setGranadaCenter] = useState<{ r: number; c: number } | null>(null);
+  /** Modal: apply damage to all combatants (and optionally cover) in the current granada blast */
+  const [granadaDamageModalOpen, setGranadaDamageModalOpen] = useState(false);
+  const [granadaDamageAmount, setGranadaDamageAmount] = useState(6);
+  const [granadaDamageCover, setGranadaDamageCover] = useState(true);
 
   const handleCreateGrid = () => {
     const rows = Math.max(1, Math.min(24, Math.round(rowsInput)));
@@ -328,12 +361,13 @@ export default function MapGrid() {
       message.warning("Selecione outra célula como alvo.");
       return;
     }
-    const distance = Math.floor(Math.sqrt((r - from.r) ** 2 + (c - from.c) ** 2));
+    const distanceCells = Math.floor(Math.sqrt((r - from.r) ** 2 + (c - from.c) ** 2));
+    const distanceM = distanceCells * CELL_SCALE_METERS;
     const los = hasLineOfSight(from.r, from.c, r, c, coverCells);
     if (los) {
-      message.success(`Linha de visão livre. Distância: ${distance} (${from.r + 1},${from.c + 1}) → (${r + 1},${c + 1}).`);
+      message.success(`Linha de visão livre. Distância: ${distanceM}m (${from.r + 1},${from.c + 1}) → (${r + 1},${c + 1}).`);
     } else {
-      message.error(`Sem linha de visão (cobertura no caminho). Distância: ${distance}.`);
+      message.error(`Sem linha de visão (cobertura no caminho). Distância: ${distanceM}m.`);
     }
     setMirarFrom(null);
     setMirarMode(false);
@@ -371,6 +405,59 @@ export default function MapGrid() {
     const lineCells = getCellsOnLine(mirarFrom.r, mirarFrom.c, mirarHoveredCell.r, mirarHoveredCell.c);
     return new Set(lineCells.map(({ r, c }) => `${r},${c}`));
   }, [mirarFrom, mirarHoveredCell]);
+
+  /** Cells inside the current granada blast (10m = radius 5), for highlight */
+  const granadaBlastCellSet = useMemo(() => {
+    if (!granadaCenter || rows <= 0 || cols <= 0) return new Set<string>();
+    const blastCells = getCellsInBlast(granadaCenter.r, granadaCenter.c, GRENADE_RADIUS_CELLS, rows, cols);
+    return new Set(blastCells.map(({ r, c }) => coverKey(r, c)));
+  }, [granadaCenter, rows, cols]);
+
+  const handleGranadaCellClick = (r: number, c: number) => {
+    if (!granadaMode || !isHost) return;
+    setGranadaCenter({ r, c });
+    message.info(`Centro da explosão: (${r + 1},${c + 1}). Use "Aplicar dano em área" para aplicar dano.`);
+  };
+
+  const applyGranadaAreaDamage = () => {
+    if (!granadaCenter || !mapGrid || !isHost) return;
+    const blastCells = getCellsInBlast(granadaCenter.r, granadaCenter.c, GRENADE_RADIUS_CELLS, rows, cols);
+    const combatantIds = new Set<string>();
+    for (const { r, c } of blastCells) {
+      const id = cells[r]?.[c] ?? null;
+      if (id) combatantIds.add(id);
+    }
+    const amount = granadaDamageAmount;
+    for (const id of combatantIds) {
+      applyDamage(id, amount);
+    }
+    if (granadaDamageCover) {
+      let nextCover: Record<string, { health?: number }> = { ...coverCells };
+      for (const { r, c } of blastCells) {
+        const key = coverKey(r, c);
+        const info = nextCover[key];
+        if (info == null) continue;
+        const current = info.health ?? 0;
+        const newHealth = Math.max(0, current - amount);
+        if (newHealth <= 0) {
+          const { [key]: _, ...rest } = nextCover;
+          nextCover = rest;
+          broadcastUpdate(`Mapa: cobertura em (${r + 1},${c + 1}) destruída`);
+        } else {
+          nextCover = { ...nextCover, [key]: { health: newHealth } };
+          broadcastUpdate(`Mapa: cobertura em (${r + 1},${c + 1}) tomou ${amount} de dano (HP: ${newHealth})`);
+        }
+      }
+      setMapGrid({ ...mapGrid, coverCells: nextCover });
+    }
+    const n = combatantIds.size;
+    broadcastUpdate(`Granada: ${amount} de dano em área${n > 0 ? ` (${n} alvo${n !== 1 ? "s" : ""})` : ""}${granadaDamageCover ? "; dano em cobertura aplicado" : ""}.`);
+    setGranadaCenter(null);
+    setGranadaMode(false);
+    setGranadaDamageModalOpen(false);
+    setGranadaDamageAmount(6);
+    setGranadaDamageCover(true);
+  };
 
   if (rows === 0 || cols === 0) {
     return (
@@ -451,7 +538,7 @@ export default function MapGrid() {
               </Button>
             </Col>
             <Col style={{ marginLeft: 16 }}>
-              <Switch checked={paintMode} onChange={setPaintMode} disabled={mirarMode} />
+              <Switch checked={paintMode} onChange={setPaintMode} disabled={mirarMode || granadaMode} />
               <span style={{ marginLeft: 8 }}>Pintar</span>
             </Col>
             <Col>
@@ -464,6 +551,7 @@ export default function MapGrid() {
                   if (mirarMode) message.info("Mirar cancelado.");
                   else message.info("Clique na célula de origem, depois na célula alvo.");
                 }}
+                disabled={granadaMode}
               >
                 Mirar
               </Button>
@@ -473,6 +561,37 @@ export default function MapGrid() {
                 </span>
               )}
             </Col>
+            <Col>
+              <Button
+                type={granadaMode ? "primary" : "default"}
+                onClick={() => {
+                  setGranadaMode((g) => !g);
+                  setGranadaCenter(null);
+                  setGranadaDamageModalOpen(false);
+                  if (granadaMode) message.info("Granada cancelado.");
+                  else message.info("Clique na célula do impacto (centro da explosão 10m).");
+                }}
+                disabled={mirarMode || paintMode}
+              >
+                Granada
+              </Button>
+              {granadaMode && (
+                <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>
+                  {granadaCenter ? `Centro: (${granadaCenter.r + 1},${granadaCenter.c + 1})` : "Clique no centro"}
+                </span>
+              )}
+            </Col>
+            {granadaMode && granadaCenter && (
+              <Col>
+                <Button
+                  type="primary"
+                  danger
+                  onClick={() => setGranadaDamageModalOpen(true)}
+                >
+                  Aplicar dano em área
+                </Button>
+              </Col>
+            )}
             {paintMode && (
               <Col>
                 <span>Cover HP:</span>
@@ -542,9 +661,10 @@ export default function MapGrid() {
               const displayText = combatantName
                 ? truncateName(combatantName, Math.max(6, Math.floor(cellSize / 7)))
                 : null;
-              const canDrop = isHost && !paintMode && !mirarMode && !isCover;
-              const showCellMenu = isHost && !paintMode && !mirarMode && !!combatantId;
-              const showCoverMenu = isHost && !paintMode && !mirarMode && isCover;
+              const isInGranadaBlast = granadaBlastCellSet.has(key);
+              const canDrop = isHost && !paintMode && !mirarMode && !granadaMode && !isCover;
+              const showCellMenu = isHost && !paintMode && !mirarMode && !granadaMode && !!combatantId;
+              const showCoverMenu = isHost && !paintMode && !mirarMode && !granadaMode && isCover;
               const menuItems: MenuProps["items"] = showCellMenu
                 ? [
                     { key: "deletar", label: "Deletar", onClick: () => clearCellCombatant(r, c, combatantId!) },
@@ -562,15 +682,17 @@ export default function MapGrid() {
               const cellContent = (
                 <div
                   key={`${r}-${c}`}
-                  role={isHost && (paintMode || mirarMode) ? "button" : undefined}
+                  role={isHost && (paintMode || mirarMode || granadaMode) ? "button" : undefined}
                   onClick={
                     isHost && paintMode
                       ? () => toggleCover(r, c)
                       : isHost && mirarMode
                         ? () => handleMirarClick(r, c)
-                        : undefined
+                        : isHost && granadaMode
+                          ? () => handleGranadaCellClick(r, c)
+                          : undefined
                   }
-                  draggable={isHost && !paintMode && !!combatantId}
+                  draggable={isHost && !paintMode && !granadaMode && !!combatantId}
                   onDragStart={
                     isHost && !paintMode && combatantId
                       ? (e) => {
@@ -597,15 +719,19 @@ export default function MapGrid() {
                       ? "#e6f7ff"
                       : isOnMirarLine
                         ? "rgba(220, 100, 100, 0.5)"
-                        : isCover
-                          ? "#8b7355"
-                          : "#fff",
+                        : isInGranadaBlast
+                          ? "rgba(255, 100, 50, 0.45)"
+                          : isCover
+                            ? "#8b7355"
+                            : "#fff",
                     border:
                       isMirarOrigin
                         ? "2px solid #1890ff"
-                        : isCover
-                          ? "1px solid #5d4e3d"
-                          : "1px solid #bfbfbf",
+                        : isInGranadaBlast
+                          ? "1px solid #c0392b"
+                          : isCover
+                            ? "1px solid #5d4e3d"
+                            : "1px solid #bfbfbf",
                     borderRadius: 2,
                     display: "flex",
                     flexDirection: "column",
@@ -616,28 +742,59 @@ export default function MapGrid() {
                     overflow: "visible",
                     padding: 2,
                     cursor:
-                      isHost && paintMode
+                      isHost && (paintMode || mirarMode || granadaMode)
                         ? "crosshair"
-                        : isHost && mirarMode
-                          ? "crosshair"
-                          : isHost && (combatantId || isCover)
-                            ? "pointer"
-                            : undefined,
+                        : isHost && (combatantId || isCover)
+                          ? "pointer"
+                          : undefined,
                   }}
                   title={
-                    mirarMode
-                      ? mirarFrom === null
-                        ? "Clique para definir origem"
-                        : isMirarOrigin
-                          ? "Origem selecionada — clique no alvo"
-                          : "Clique para definir alvo"
-                      : isCover
+                    granadaMode
+                      ? "Clique para definir centro da explosão (10m)"
+                      : mirarMode
+                        ? mirarFrom === null
+                          ? "Clique para definir origem"
+                          : isMirarOrigin
+                            ? "Origem selecionada — clique no alvo"
+                            : "Clique para definir alvo"
+                        : isCover
                         ? `Cobertura${coverHealth != null ? ` (HP: ${coverHealth})` : ""}`
                         : combatantId
                           ? (combatantName ? `Iniciativa: ${combatantName}` : combatantId)
                           : "Casa vazia — arraste da lista ou de outra casa"
                   }
                 >
+                  {combatant && (combatant.currentHealth ?? 0) <= 0 && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "rgba(180, 0, 0, 0.6)",
+                        borderRadius: 2,
+                        pointerEvents: "none",
+                      }}
+                      aria-hidden
+                    >
+                      <svg
+                        width={Math.max(20, Math.floor(cellSize * 0.65))}
+                        height={Math.max(20, Math.floor(cellSize * 0.65))}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#fff"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <ellipse cx="12" cy="10" rx="7" ry="8" />
+                        <circle cx="9" cy="9" r="1.5" />
+                        <circle cx="15" cy="9" r="1.5" />
+                        <path d="M8 14c0 0 1.5 2 4 2s4-2 4-2" />
+                      </svg>
+                    </div>
+                  )}
                   {combatantId && combatant ? (
                     <>
                       {isHovered && (
@@ -746,6 +903,48 @@ export default function MapGrid() {
             value={damageAmount}
             onChange={(v) => setDamageAmount(Number(v) ?? 1)}
           />
+        </div>
+      </Modal>
+      <Modal
+        title="Granada — dano em área (10m)"
+        open={granadaDamageModalOpen}
+        onOk={applyGranadaAreaDamage}
+        onCancel={() => { setGranadaDamageModalOpen(false); setGranadaDamageAmount(6); setGranadaDamageCover(true); }}
+        okText="Aplicar dano"
+        cancelText="Cancelar"
+      >
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 12 }}>
+            <span style={{ marginRight: 8 }}>Dano (ex.: 6d6):</span>
+            <InputNumber
+              min={1}
+              value={granadaDamageAmount}
+              onChange={(v) => setGranadaDamageAmount(Number(v) ?? 6)}
+            />
+          </div>
+          {granadaCenter && (() => {
+            const blastCells = getCellsInBlast(granadaCenter.r, granadaCenter.c, GRENADE_RADIUS_CELLS, rows, cols);
+            const ids = new Set<string>();
+            for (const { r, c } of blastCells) {
+              const id = cells[r]?.[c] ?? null;
+              if (id) ids.add(id);
+            }
+            const names = [...ids].map((id) => initiativeCombatants.find((c) => c.id === id)?.name ?? id.slice(-6));
+            return (
+              <>
+                <div style={{ marginBottom: 8, fontSize: 12, color: "#666" }}>
+                  Alvos na área: {names.length ? names.join(", ") : "nenhum"}
+                </div>
+                <Checkbox
+                  checked={granadaDamageCover}
+                  onChange={(e) => setGranadaDamageCover(e.target.checked)}
+                  style={{ marginTop: 8 }}
+                >
+                  Aplicar dano em cobertura na área
+                </Checkbox>
+              </>
+            );
+          })()}
         </div>
       </Modal>
     </Row>

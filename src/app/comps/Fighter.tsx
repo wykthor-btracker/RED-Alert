@@ -198,8 +198,8 @@ export default function Fighter(props: any) {
                 HP: <span style={{fontWeight: "bold"}}>
                   {stats.currentHealth/stats.maxHealth<=0.5 
                   ? (stats.currentHealth < 1 ? 
-                      <Tooltip title=" -4 to all Actions. -6 to MOVE(Min. 1) Death save at start of each turn (Roll 1d10<BODY = success) Critical Injury when damaged. Death Save Penalty +! on hit.">Mortally Wounded!</Tooltip> 
-                  : "Seriously Wounded! -2 to all Actions.") : null}</span>
+                      <Tooltip title="-4 em todas as ações. -6 em MOVE (mín. 1). Teste de morte no início de cada turno (1d10 &lt; CORPO = sucesso). Ferimento crítico ao sofrer dano. Penalidade no teste de morte +1 ao ser atingido.">Ferido mortalmente!</Tooltip> 
+                  : "Ferido grave! -2 em todas as ações.") : null}</span>
                 <Progress 
                       success={{percent: (stats.currentHealth/(stats.maxHealth+shield))*100, strokeColor: (stats.currentHealth/stats.maxHealth)*100<=50 ? "red" : "green"}}
                       showInfo={false} 
@@ -211,23 +211,23 @@ export default function Fighter(props: any) {
             <Col span={12}>
               <Row>
                 <Col span={12}>
-                  SP Head: {stats.stoppingPowerHead}<Progress showInfo={false} strokeColor={"orange"} percent={(stats.stoppingPowerHead/stats.stoppingPowerHeadMax)*100}/>
+                  SP Cabeça: {stats.stoppingPowerHead}<Progress showInfo={false} strokeColor={"orange"} percent={(stats.stoppingPowerHead/stats.stoppingPowerHeadMax)*100}/>
                 </Col>
                 <Col span={12}>
-                  SP Body: {stats.stoppingPower}<Progress showInfo={false} strokeColor={"orange"} percent={(stats.stoppingPower/stats.stoppingPowerMax)*100}/>
+                  SP Corpo: {stats.stoppingPower}<Progress showInfo={false} strokeColor={"orange"} percent={(stats.stoppingPower/stats.stoppingPowerMax)*100}/>
                 </Col>
               </Row>
             </Col>
             <Col span={24}>
               <Row>
                 <Col span={3}>
-                  <Button style={{width: 100}} onClick={damage}>Damage</Button>
+                  <Button style={{width: 100}} onClick={damage}>Dano</Button>
                 </Col>
                 <Col span={3}>
-                  <Button style={{width: 100}} onClick={heal}>Heal</Button>
+                  <Button style={{width: 100}} onClick={heal}>Curar</Button>
                 </Col>
                 <Col span={3}>
-                  <Button style={{width: 100}} onClick={addShield}>Shield</Button>
+                  <Button style={{width: 100}} onClick={addShield}>Escudo</Button>
                 </Col>
                 <Col span={3}>
                   <Input onChange={(event)=>setValue(event.target.value)} value={value}></Input>
@@ -236,7 +236,7 @@ export default function Fighter(props: any) {
                   <Row gutter={8}>
                     <Col span={12}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <Button onClick={ablateHead}>Ablate</Button>
+                        <Button onClick={ablateHead}>Ablação</Button>
                         <InputNumber
                           min={0}
                           value={setSpHeadValue}
@@ -244,12 +244,12 @@ export default function Fighter(props: any) {
                           style={{ width: 56 }}
                           controls={false}
                         />
-                        <Button onClick={setStoppingPowerHead} style={{ marginLeft: "auto" }}>Set SP</Button>
+                        <Button onClick={setStoppingPowerHead} style={{ marginLeft: "auto" }}>Definir SP</Button>
                       </div>
                     </Col>
                     <Col span={12}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <Button onClick={ablate}>Ablate</Button>
+                        <Button onClick={ablate}>Ablação</Button>
                         <InputNumber
                           min={0}
                           value={setSpBodyValue}
@@ -257,7 +257,7 @@ export default function Fighter(props: any) {
                           style={{ width: 56 }}
                           controls={false}
                         />
-                        <Button onClick={setStoppingPowerBody} style={{ marginLeft: "auto" }}>Set SP</Button>
+                        <Button onClick={setStoppingPowerBody} style={{ marginLeft: "auto" }}>Definir SP</Button>
                       </div>
                     </Col>
                   </Row>
