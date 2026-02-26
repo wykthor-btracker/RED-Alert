@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Col, Dropdown, InputNumber, MenuProps, Modal, Row, Switch } from "antd";
+import { Button, Col, Dropdown, InputNumber, MenuProps, message, Modal, Row, Switch } from "antd";
 import { useContext, useMemo, useState } from "react";
 import { LogData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
 
@@ -18,6 +18,57 @@ function coverKey(r: number, c: number) {
 function truncateName(name: string, maxLen: number): string {
   if (name.length <= maxLen) return name;
   return name.slice(0, maxLen - 1) + "…";
+}
+
+/** Cells that the line from (r1,c1) to (r2,c2) passes through (Bresenham, including endpoints). */
+function getCellsOnLine(r1: number, c1: number, r2: number, c2: number): { r: number; c: number }[] {
+  const out: { r: number; c: number }[] = [];
+  const dr = Math.abs(r2 - r1);
+  const dc = Math.abs(c2 - c1);
+  const sr = r1 < r2 ? 1 : -1;
+  const sc = c1 < c2 ? 1 : -1;
+  let r = r1;
+  let c = c1;
+  out.push({ r, c });
+  if (dr >= dc) {
+    let err = 2 * dc - dr;
+    for (let i = 0; i < dr; i++) {
+      if (err > 0) {
+        c += sc;
+        err -= 2 * dr;
+      }
+      r += sr;
+      err += 2 * dc;
+      out.push({ r, c });
+    }
+  } else {
+    let err = 2 * dr - dc;
+    for (let i = 0; i < dc; i++) {
+      if (err > 0) {
+        r += sr;
+        err -= 2 * dc;
+      }
+      c += sc;
+      err += 2 * dr;
+      out.push({ r, c });
+    }
+  }
+  return out;
+}
+
+function hasLineOfSight(
+  r1: number,
+  c1: number,
+  r2: number,
+  c2: number,
+  coverCells: Record<string, unknown>
+): boolean {
+  const cells = getCellsOnLine(r1, c1, r2, c2);
+  for (let i = 1; i < cells.length - 1; i++) {
+    const { r, c } = cells[i];
+    if (coverKey(r, c) in coverCells) return false;
+  }
+  return true;
 }
 
 /** Floating bars shown on hover: health (red), body SP (yellow), head SP (orange). Responsive to cell size. */
@@ -121,6 +172,11 @@ export default function MapGrid() {
   const [damageAmount, setDamageAmount] = useState<number>(1);
   /** Combatant cell being hovered (for floating bars) */
   const [hoveredCell, setHoveredCell] = useState<{ r: number; c: number } | null>(null);
+  /** Mirar (line of sight): when true, first click = origin, second = target */
+  const [mirarMode, setMirarMode] = useState(false);
+  const [mirarFrom, setMirarFrom] = useState<{ r: number; c: number } | null>(null);
+  /** Cell hovered while awaiting second click (to show Bresenham line preview) */
+  const [mirarHoveredCell, setMirarHoveredCell] = useState<{ r: number; c: number } | null>(null);
 
   const handleCreateGrid = () => {
     const rows = Math.max(1, Math.min(24, Math.round(rowsInput)));
@@ -260,6 +316,30 @@ export default function MapGrid() {
     setDamageAmount(1);
   };
 
+  const handleMirarClick = (r: number, c: number) => {
+    if (!mirarMode) return;
+    if (mirarFrom === null) {
+      setMirarFrom({ r, c });
+      message.info(`Origem: (${r + 1}, ${c + 1}). Clique na célula alvo.`);
+      return;
+    }
+    const from = mirarFrom;
+    if (from.r === r && from.c === c) {
+      message.warning("Selecione outra célula como alvo.");
+      return;
+    }
+    const distance = Math.floor(Math.sqrt((r - from.r) ** 2 + (c - from.c) ** 2));
+    const los = hasLineOfSight(from.r, from.c, r, c, coverCells);
+    if (los) {
+      message.success(`Linha de visão livre. Distância: ${distance} (${from.r + 1},${from.c + 1}) → (${r + 1},${c + 1}).`);
+    } else {
+      message.error(`Sem linha de visão (cobertura no caminho). Distância: ${distance}.`);
+    }
+    setMirarFrom(null);
+    setMirarMode(false);
+    setMirarHoveredCell(null);
+  };
+
   const applyArmorHeadDamage = (combatantId: string, amount: number) => {
     const combatant = initiativeCombatants.find((c) => c.id === combatantId);
     const name = combatant?.name ?? combatantId.slice(-6);
@@ -284,6 +364,13 @@ export default function MapGrid() {
     if (total >= 100) return minCell;
     return Math.max(minCell, maxCell - Math.floor((total - 16) / 10));
   }, [rows, cols]);
+
+  /** Cells on the Bresenham line from origin to hovered cell (for reddish tint preview) */
+  const mirarLineCellSet = useMemo(() => {
+    if (!mirarFrom || !mirarHoveredCell) return new Set<string>();
+    const lineCells = getCellsOnLine(mirarFrom.r, mirarFrom.c, mirarHoveredCell.r, mirarHoveredCell.c);
+    return new Set(lineCells.map(({ r, c }) => `${r},${c}`));
+  }, [mirarFrom, mirarHoveredCell]);
 
   if (rows === 0 || cols === 0) {
     return (
@@ -364,8 +451,27 @@ export default function MapGrid() {
               </Button>
             </Col>
             <Col style={{ marginLeft: 16 }}>
-              <Switch checked={paintMode} onChange={setPaintMode} />
+              <Switch checked={paintMode} onChange={setPaintMode} disabled={mirarMode} />
               <span style={{ marginLeft: 8 }}>Pintar</span>
+            </Col>
+            <Col>
+              <Button
+                type={mirarMode ? "primary" : "default"}
+                onClick={() => {
+                  setMirarMode((m) => !m);
+                  setMirarFrom(null);
+                  setMirarHoveredCell(null);
+                  if (mirarMode) message.info("Mirar cancelado.");
+                  else message.info("Clique na célula de origem, depois na célula alvo.");
+                }}
+              >
+                Mirar
+              </Button>
+              {mirarMode && (
+                <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>
+                  {mirarFrom ? `Alvo? (origem: ${mirarFrom.r + 1},${mirarFrom.c + 1})` : "Clique na origem"}
+                </span>
+              )}
             </Col>
             {paintMode && (
               <Col>
@@ -436,9 +542,9 @@ export default function MapGrid() {
               const displayText = combatantName
                 ? truncateName(combatantName, Math.max(6, Math.floor(cellSize / 7)))
                 : null;
-              const canDrop = isHost && !paintMode && !isCover;
-              const showCellMenu = isHost && !paintMode && !!combatantId;
-              const showCoverMenu = isHost && !paintMode && isCover;
+              const canDrop = isHost && !paintMode && !mirarMode && !isCover;
+              const showCellMenu = isHost && !paintMode && !mirarMode && !!combatantId;
+              const showCoverMenu = isHost && !paintMode && !mirarMode && isCover;
               const menuItems: MenuProps["items"] = showCellMenu
                 ? [
                     { key: "deletar", label: "Deletar", onClick: () => clearCellCombatant(r, c, combatantId!) },
@@ -451,11 +557,19 @@ export default function MapGrid() {
                 ? [{ key: "dano", label: "Dano", onClick: () => { setCoverDamageModal({ r, c }); setCoverMenu(null); } }]
                 : [];
               const isHovered = hoveredCell?.r === r && hoveredCell?.c === c;
+              const isMirarOrigin = mirarFrom?.r === r && mirarFrom?.c === c;
+              const isOnMirarLine = mirarFrom && mirarHoveredCell && mirarLineCellSet.has(coverKey(r, c));
               const cellContent = (
                 <div
                   key={`${r}-${c}`}
-                  role={isHost && paintMode ? "button" : undefined}
-                  onClick={isHost && paintMode ? () => toggleCover(r, c) : undefined}
+                  role={isHost && (paintMode || mirarMode) ? "button" : undefined}
+                  onClick={
+                    isHost && paintMode
+                      ? () => toggleCover(r, c)
+                      : isHost && mirarMode
+                        ? () => handleMirarClick(r, c)
+                        : undefined
+                  }
                   draggable={isHost && !paintMode && !!combatantId}
                   onDragStart={
                     isHost && !paintMode && combatantId
@@ -467,14 +581,31 @@ export default function MapGrid() {
                   }
                   onDragOver={canDrop ? (e) => e.preventDefault() : undefined}
                   onDrop={canDrop ? (e) => handleCellDrop(e, r, c) : undefined}
-                  onMouseEnter={() => combatantId && combatant && setHoveredCell({ r, c })}
-                  onMouseLeave={() => setHoveredCell(null)}
+                  onMouseEnter={() => {
+                    if (combatantId && combatant) setHoveredCell({ r, c });
+                    if (mirarMode && mirarFrom) setMirarHoveredCell({ r, c });
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredCell(null);
+                    if (mirarMode && mirarFrom) setMirarHoveredCell(null);
+                  }}
                   style={{
                     position: "relative",
                     width: cellSize,
                     height: cellSize,
-                    backgroundColor: isCover ? "#8b7355" : "#fff",
-                    border: isCover ? "1px solid #5d4e3d" : "1px solid #bfbfbf",
+                    backgroundColor: isMirarOrigin
+                      ? "#e6f7ff"
+                      : isOnMirarLine
+                        ? "rgba(220, 100, 100, 0.5)"
+                        : isCover
+                          ? "#8b7355"
+                          : "#fff",
+                    border:
+                      isMirarOrigin
+                        ? "2px solid #1890ff"
+                        : isCover
+                          ? "1px solid #5d4e3d"
+                          : "1px solid #bfbfbf",
                     borderRadius: 2,
                     display: "flex",
                     flexDirection: "column",
@@ -484,14 +615,27 @@ export default function MapGrid() {
                     color: combatantId ? "#1677ff" : isCover ? "#f0e6d8" : "#bfbfbf",
                     overflow: "visible",
                     padding: 2,
-                    cursor: isHost && paintMode ? "crosshair" : isHost && (combatantId || isCover) ? "pointer" : undefined,
+                    cursor:
+                      isHost && paintMode
+                        ? "crosshair"
+                        : isHost && mirarMode
+                          ? "crosshair"
+                          : isHost && (combatantId || isCover)
+                            ? "pointer"
+                            : undefined,
                   }}
                   title={
-                    isCover
-                      ? `Cobertura${coverHealth != null ? ` (HP: ${coverHealth})` : ""}`
-                      : combatantId
-                        ? (combatantName ? `Iniciativa: ${combatantName}` : combatantId)
-                        : "Casa vazia — arraste da lista ou de outra casa"
+                    mirarMode
+                      ? mirarFrom === null
+                        ? "Clique para definir origem"
+                        : isMirarOrigin
+                          ? "Origem selecionada — clique no alvo"
+                          : "Clique para definir alvo"
+                      : isCover
+                        ? `Cobertura${coverHealth != null ? ` (HP: ${coverHealth})` : ""}`
+                        : combatantId
+                          ? (combatantName ? `Iniciativa: ${combatantName}` : combatantId)
+                          : "Casa vazia — arraste da lista ou de outra casa"
                   }
                 >
                   {combatantId && combatant ? (
