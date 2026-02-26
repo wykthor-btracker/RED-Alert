@@ -14,6 +14,7 @@ import {
   Col,
   Select,
   Space,
+  Switch,
   Tooltip,
   Typography,
 } from "antd";
@@ -45,6 +46,7 @@ import { referenceSkills, SKILL_CATEGORY_LABELS } from "@/data/reference/skills"
 import type { SkillCategoryKey } from "@/app/types/reference";
 import { referenceWeapons } from "@/data/reference/weapons";
 import { referenceWearables } from "@/data/reference/wearables";
+import type { ReferenceWearable } from "@/app/types/reference";
 import { referenceConsumables } from "@/data/reference/consumables";
 import { referenceCyberware } from "@/data/reference/cyberware";
 
@@ -410,7 +412,7 @@ export default function CharacterData() {
       </Form>
 
       <Collapse
-        defaultActiveKey={["stats", "health", "credits", "inventory", "cyberware", "info"]}
+        defaultActiveKey={[]}
         items={[
           {
             key: "stats",
@@ -434,6 +436,7 @@ export default function CharacterData() {
                 <Title level={5}>Perícias</Title>
                 <Collapse
                   size="small"
+                  defaultActiveKey={[]}
                   style={{ marginTop: 8 }}
                   items={skillsByCategory.map(({ category, items }) => {
                     const mid = Math.ceil(items.length / 2);
@@ -659,10 +662,16 @@ function InventorySection({
     const k = addModal!;
     const key = (k + "s") as "weapons" | "wearables" | "consumables";
     addForm.validateFields().then((vals) => {
+      // For wearables, ensure referenceId comes from the selected ref so armor vs helm is correct
+      let referenceId = vals.referenceId;
+      if (k === "wearable" && referenceId) {
+        const ref = (refs.wearables as ReferenceWearable[]).find((r) => r.id === referenceId);
+        if (ref) referenceId = ref.id;
+      }
       const entry: InventoryEntry = {
         name: vals.name ?? vals.referenceId ?? "Item",
         quantity: vals.quantity ?? 1,
-        referenceId: vals.referenceId,
+        referenceId,
         notes: vals.notes,
       };
       addEntry(key, entry);
@@ -700,10 +709,115 @@ function InventorySection({
     </Card>
   );
 
+  const refWearables = refs.wearables as ReferenceWearable[];
+  const wearablesWithIndex = wearables.map((w, i) => ({ w, globalIdx: i }));
+  const armorItems = wearablesWithIndex.filter(({ w }) => {
+    const ref = refWearables.find((r) => r.id === w.referenceId);
+    return ref?.equipmentKind === "armor";
+  });
+  const helmItems = wearablesWithIndex.filter(({ w }) => {
+    const ref = refWearables.find((r) => r.id === w.referenceId);
+    return ref?.equipmentKind === "helm";
+  });
+  const otherWearables = wearablesWithIndex.filter(({ w }) => {
+    const ref = refWearables.find((r) => r.id === w.referenceId);
+    return !ref?.equipmentKind;
+  });
+
+  const updateWearableAt = (globalIdx: number, updater: (prev: InventoryEntry) => InventoryEntry) => {
+    updateData((d) => ({
+      ...d,
+      wearables: d.wearables.map((w, i) => (i === globalIdx ? updater(w) : w)),
+    }));
+  };
+
+  const renderArmorHelmList = (
+    title: string,
+    kind: "armor" | "helm",
+    items: { w: InventoryEntry; globalIdx: number }[]
+  ) => (
+    <Card size="small" title={title} style={{ marginBottom: 12 }}>
+      <List
+        size="small"
+        dataSource={items}
+        renderItem={({ w, globalIdx }) => {
+          const ref = refWearables.find((r) => r.id === w.referenceId) as ReferenceWearable | undefined;
+          const defaultSP = kind === "armor" ? (ref?.stoppingPower ?? 0) : (ref?.stoppingPowerHead ?? ref?.stoppingPower ?? 0);
+          const spValue = kind === "armor" ? (w.stoppingPowerBody ?? defaultSP) : (w.stoppingPowerHead ?? defaultSP);
+          return (
+            <List.Item
+              actions={
+                canEdit
+                  ? [<Button key="x" type="link" danger size="small" onClick={() => removeEntry("wearables", globalIdx)}>Remover</Button>]
+                  : undefined
+              }
+            >
+              <Space direction="vertical" size={0}>
+                <span>{w.name} × {w.quantity}{w.notes ? ` — ${w.notes}` : ""}</span>
+                {canEdit && (
+                  <Space align="center">
+                    <Switch
+                      size="small"
+                      checked={!!w.equipped}
+                      onChange={(checked) => updateWearableAt(globalIdx, (prev) => ({ ...prev, equipped: checked }))}
+                    />
+                    <span>Equipado</span>
+                    <span style={{ marginLeft: 8 }}>{kind === "armor" ? "SP corpo:" : "SP cabeça:"}</span>
+                    <InputNumber
+                      min={0}
+                      size="small"
+                      style={{ width: 64 }}
+                      value={spValue}
+                      onChange={(v) =>
+                        updateWearableAt(globalIdx, (prev) =>
+                          kind === "armor" ? { ...prev, stoppingPowerBody: v ?? defaultSP } : { ...prev, stoppingPowerHead: v ?? defaultSP }
+                        )
+                      }
+                    />
+                  </Space>
+                )}
+              </Space>
+            </List.Item>
+          );
+        }}
+      />
+      {canEdit && (
+        <Button type="dashed" icon={<PlusOutlined />} onClick={() => handleAdd("wearable")}>
+          Adicionar
+        </Button>
+      )}
+    </Card>
+  );
+
   return (
     <>
       {renderList("Armas", "weapons", weapons)}
-      {renderList("Vestuário / Armadura", "wearables", wearables)}
+      {renderArmorHelmList("Armadura (corpo)", "armor", armorItems)}
+      {renderArmorHelmList("Capacete (cabeça)", "helm", helmItems)}
+      <Card size="small" title="Outros vestuário" style={{ marginBottom: 12 }}>
+        {otherWearables.length > 0 && (
+          <List
+            size="small"
+            dataSource={otherWearables}
+            renderItem={({ w, globalIdx }) => (
+              <List.Item
+                actions={
+                  canEdit
+                    ? [<Button key="x" type="link" danger size="small" onClick={() => removeEntry("wearables", globalIdx)}>Remover</Button>]
+                    : undefined
+                }
+              >
+                {w.name} × {w.quantity}{w.notes ? ` — ${w.notes}` : ""}
+              </List.Item>
+            )}
+          />
+        )}
+        {canEdit && (
+          <Button type="dashed" icon={<PlusOutlined />} onClick={() => handleAdd("wearable")}>
+            Adicionar
+          </Button>
+        )}
+      </Card>
       {renderList("Consumíveis", "consumables", consumables)}
       <Modal
         title={`Adicionar ${addModal === "weapon" ? "arma" : addModal === "wearable" ? "vestuário" : "consumível"}`}
@@ -730,7 +844,10 @@ function InventorySection({
                 if (!v || !addModal) return;
                 const arr = refs[addModal + "s" as "weapons" | "wearables" | "consumables"];
                 const ref = arr.find((r) => r.id === v);
-                if (ref) addForm.setFieldValue("name", ref.name);
+                if (ref) {
+                  addForm.setFieldValue("referenceId", ref.id);
+                  addForm.setFieldValue("name", ref.name);
+                }
               }}
             />
           </Form.Item>

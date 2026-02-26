@@ -21,6 +21,12 @@ export interface InventoryEntry {
   quantity: number;
   referenceId?: string;
   notes?: string;
+  /** For wearables that are armor/helm: whether currently equipped (affects sheet SP). */
+  equipped?: boolean;
+  /** Manual override for body stopping power when equipped (armor). */
+  stoppingPowerBody?: number;
+  /** Manual override for head stopping power when equipped (helm). */
+  stoppingPowerHead?: number;
 }
 
 /** Installed cyberware. */
@@ -101,4 +107,34 @@ export function slugify(text: string): string {
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "") || "untitled";
+}
+
+/** Reference wearable shape needed to compute sheet SP from equipped items. */
+export interface WearableRefForSP {
+  id: string;
+  equipmentKind?: "armor" | "helm";
+  stoppingPower?: number;
+  stoppingPowerHead?: number;
+}
+
+/** Compute body and head stopping power from sheet's equipped armor/helm. */
+export function getSheetStoppingPower(
+  data: CharacterData,
+  refWearables: WearableRefForSP[]
+): { body: number; bodyMax: number; head: number; headMax: number } {
+  let body = 0;
+  let head = 0;
+  for (const w of data.wearables ?? []) {
+    if (!w.equipped || !w.referenceId) continue;
+    const ref = refWearables.find((r) => r.id === w.referenceId);
+    if (!ref) continue;
+    if (ref.equipmentKind === "armor") {
+      const sp = w.stoppingPowerBody ?? ref.stoppingPower ?? 0;
+      body += sp;
+    } else if (ref.equipmentKind === "helm") {
+      const sp = w.stoppingPowerHead ?? ref.stoppingPowerHead ?? ref.stoppingPower ?? 0;
+      head += sp;
+    }
+  }
+  return { body, bodyMax: body, head, headMax: head };
 }

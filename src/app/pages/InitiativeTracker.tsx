@@ -1,9 +1,11 @@
 import { Button, Col, FloatButton, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
-import { LeftOutlined, RightOutlined } from "@ant-design/icons";
+import { LeftOutlined, RightOutlined, UserOutlined } from "@ant-design/icons";
 import QueueAnim from "rc-queue-anim";
 import { useContext, useEffect, useMemo, useState } from "react";
 import Fighter from "../comps/Fighter";
 import { InitiativeCombatant, LogData, MessageBusContext } from "../contexts/MessageBusContext";
+import { getSheetStoppingPower } from "../types/character";
+import { referenceWearables } from "@/data/reference/wearables";
 const { Title } = Typography;
 
 /** Base name without a leading (N) prefix, for duplicate counting. */
@@ -208,7 +210,7 @@ export default function InitiativeTracker(props: any) {
       stoppingPowerMax: number;
       initiative: number;
     }
-    const { send, senderData, isHost, initiativeCombatants, setInitiativeCombatants } = useContext(MessageBusContext)
+    const { send, senderData, isHost, initiativeCombatants, setInitiativeCombatants, savedCharacters } = useContext(MessageBusContext)
     const data = useMemo(() => initiativeCombatants.map(toIdata), [initiativeCombatants])
     const [toggleForm, setToggleForm]   = useState(false)
     const [currentTurnId, setCurrentTurnId] = useState<string | null>(null)
@@ -221,6 +223,7 @@ export default function InitiativeTracker(props: any) {
     }, [data, currentTurnId])
     const [tracking, setTracking]       = useState(false)
     const [addFighters, setAddFighters] = useState(false)
+    const [addSheets, setAddSheets] = useState(false)
 
     const currentTurnIndex = currentTurnId != null
       ? data.findIndex((d) => d.id === currentTurnId)
@@ -300,6 +303,26 @@ export default function InitiativeTracker(props: any) {
         setInitiativeCombatants(next)
         broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`)
     }
+
+    function addSheetToBattle(entry: { ownerName: string; data: { sheetName?: string; currentHealth?: number; maxHealth?: number; wearables?: unknown[] } }) {
+      const sheet = entry.data;
+      const displayName = nameForNewCombatant(initiativeCombatants, sheet.sheetName?.trim() || entry.ownerName);
+      const sp = getSheetStoppingPower(sheet as import("../types/character").CharacterData, referenceWearables);
+      const hp = Math.max(0, Number(sheet.currentHealth ?? sheet.maxHealth ?? 0)) || 1;
+      const next: InitiativeCombatant[] = [...initiativeCombatants, {
+        id: nextId(),
+        name: displayName,
+        currentHealth: hp,
+        maxHealth: Math.max(hp, Math.max(0, Number((sheet as { maxHealth?: number }).maxHealth ?? 0)) || hp),
+        stoppingPower: sp.body,
+        stoppingPowerMax: Math.max(sp.bodyMax, 1),
+        stoppingPowerHead: sp.head,
+        stoppingPowerHeadMax: Math.max(sp.headMax, 1),
+        initiative: 0,
+      }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
+      setInitiativeCombatants(next);
+      broadcastUpdate(`Iniciativa: ficha adicionada — ${displayName}`);
+    }
     function onInitiativeChange(id: string, value: number) {
       const intValue = Math.round(Number(value)) || 0
       const next = initiativeCombatants.map((d) =>
@@ -365,6 +388,14 @@ export default function InitiativeTracker(props: any) {
                 <Switch onChange={setAddFighters}/>
               </Col>
               <Col>Adicionar combatente pré-definido</Col>
+              {isHost && (
+                <>
+                  <Col>
+                    <Switch onChange={setAddSheets}/>
+                  </Col>
+                  <Col>Adicionar ficha (personagem)</Col>
+                </>
+              )}
               <Col><Button onClick={previousTurn}>Turno anterior</Button></Col>
               <Col><Button onClick={nextTurn}>Próximo turno</Button></Col>
             </Row>
@@ -451,6 +482,24 @@ export default function InitiativeTracker(props: any) {
           </Row>
           </> : null}
         </Col>
+        {isHost && addSheets && savedCharacters.length > 0 && (
+          <Col span={24} flex={1}>
+            <Title level={5} style={{ marginTop: 16, marginBottom: 8 }}><UserOutlined /> Fichas guardadas</Title>
+            <Row gutter={[8, 8]}>
+              {savedCharacters.map((entry) => (
+                <Col key={entry.ownerName + (entry.peerId ?? "")} span={24} md={12} lg={8}>
+                  <Button
+                    block
+                    onClick={() => addSheetToBattle(entry)}
+                  >
+                    {entry.data.sheetName?.trim() || entry.ownerName}
+                    {entry.data.sheetName?.trim() && entry.ownerName ? ` (por ${entry.ownerName})` : ""}
+                  </Button>
+                </Col>
+              ))}
+            </Row>
+          </Col>
+        )}
         <Col span={24} style={{overflowY: "scroll", height: "60vh"}}>
             <List 
               locale={{emptyText: "."}}

@@ -8,6 +8,18 @@ export interface ReferenceItem {
   [key: string]: unknown;
 }
 
+/** Wearable that can be equipped as armor (body SP) or helm (head SP). */
+export type WearableEquipmentKind = "armor" | "helm";
+
+export interface ReferenceWearable extends ReferenceItem {
+  /** If set, item can be equipped and contributes to stopping power. */
+  equipmentKind?: WearableEquipmentKind;
+  /** Default body SP when equipped (armor). */
+  stoppingPower?: number;
+  /** Default head SP when equipped (helm); falls back to stoppingPower if not set. */
+  stoppingPowerHead?: number;
+}
+
 /** Reference cyberware. */
 export interface ReferenceCyberware {
   id: string;
