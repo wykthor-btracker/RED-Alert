@@ -1,0 +1,93 @@
+import type { ReferenceSkill, SkillCategoryKey } from "@/app/types/reference";
+
+/** Category label for display (Portuguese). */
+export const SKILL_CATEGORY_LABELS: Record<SkillCategoryKey, string> = {
+  conscientizacao: "Habilidades de conscientização",
+  corporal: "Habilidades corporais",
+  controle: "Habilidades de controle",
+  educacao: "Habilidades de educação",
+  luta: "Habilidades de luta",
+  performance: "Habilidades de performance",
+  "longo-alcance": "Habilidades de arma de longo alcance",
+  social: "Habilidades sociais",
+  tecnica: "Habilidades técnicas",
+  outros: "Outras perícias",
+};
+
+export const referenceSkills: ReferenceSkill[] = [
+  // Habilidades de conscientização
+  { id: "concentracao", name: "Concentração", baseStat: "WILL", description: "Foco e controle mental, memória, recordação, ignorar distrações e domínio fisiológico. Usa WILL.", category: "conscientizacao" },
+  { id: "esconder-revelar-objeto", name: "Esconder / Revelar Objeto", baseStat: "INT", description: "Esconder objetos e encontrar objetos escondidos (ex.: armas sob a roupa). Usa INT.", category: "conscientizacao" },
+  { id: "leitura-labial", name: "Leitura Labial", baseStat: "INT", description: "Ler os lábios de alguém para saber o que estão dizendo. Usa INT.", category: "conscientizacao" },
+  { id: "percepcao", name: "Percepção", baseStat: "INT", description: "Detectar pistas, armadilhas e pessoas usando Furtividade; não objetos escondidos com Esconder/Revelar Objeto. Usa INT.", category: "conscientizacao" },
+  { id: "rastrear", name: "Rastrear", baseStat: "INT", description: "Seguir uma trilha observando rastros e outras pistas deixadas para trás. Usa INT.", category: "conscientizacao" },
+  // Habilidades corporais / físicas
+  { id: "furtividade", name: "Furtividade", baseStat: "DEX", description: "Mover-se calmamente, esconder-se, agir de forma discreta ou evitar detecção. Usa DEX.", category: "corporal" },
+  { id: "atletismo", name: "Atletismo", baseStat: "DEX", description: "Saltar, escalar, jogar, nadar, levantar pesos, etc. Usa DEX.", category: "corporal" },
+  { id: "contorcionismo", name: "Contorcionismo", baseStat: "DEX", description: "Manipular o corpo para sair de algemas ou amarras e caber em espaços inacessíveis. Usa DEX.", category: "corporal" },
+  { id: "danca", name: "Dança", baseStat: "DEX", description: "Dançar a nível profissional. Usa DEX.", category: "corporal" },
+  { id: "resistencia", name: "Resistência", baseStat: "WILL", description: "Suportar condições ambientais severas e dificuldades. Usa WILL.", category: "corporal" },
+  { id: "resistir-tortura-drogas", name: "Resistir Tortura/Drogas", baseStat: "WILL", description: "Resistir a efeitos dolorosos, interrogatório, torturas e drogas. Usa WILL.", category: "corporal" },
+  // Habilidades de controle
+  { id: "conduzir-veiculo-terrestre", name: "Conduzir Veículo Terrestre", baseStat: "REF", description: "Condução de veículos terrestres. Usa REF.", category: "controle" },
+  { id: "pilotar-veiculos-aereos", name: "Pilotar Veículos Aéreos", baseStat: "REF", description: "Pilotar veículos aéreos. Usa REF.", category: "controle" },
+  { id: "pilotar-veiculos-maritimos", name: "Pilotar Veículos Marítimos", baseStat: "REF", description: "Pilotar veículos marítimos. Usa REF.", category: "controle" },
+  { id: "equitacao", name: "Equitação", baseStat: "REF", description: "Montar uma criatura viva treinada para este propósito. Usa REF.", category: "controle" },
+  // Habilidades de educação
+  { id: "contabilidade", name: "Contabilidade", baseStat: "INT", description: "Balanços, livros falsos, malabarismos com números, orçamentos e operações de negócios. Usa INT.", category: "educacao" },
+  { id: "afinidade-com-animais", name: "Afinidade com Animais", baseStat: "INT", description: "Manusear, treinar e cuidar dos animais. Usa INT.", category: "educacao" },
+  { id: "burocracia", name: "Burocracia", baseStat: "INT", description: "Lidar com burocratas, saber com quem falar e como extrair informações. Usa INT.", category: "educacao" },
+  { id: "negocios", name: "Negócios", baseStat: "INT", description: "Práticas comerciais, oferta e demanda, gestão de funcionários, compras, vendas, marketing. Usa INT.", category: "educacao" },
+  { id: "composicao", name: "Composição", baseStat: "INT", description: "Escrever músicas, artigos ou histórias profissionalmente. Usa INT.", category: "educacao" },
+  { id: "criminologia", name: "Criminologia", baseStat: "INT", description: "Procurar pistas, impressões digitais, testes balísticos, examinar evidências e registros. Usa INT.", category: "educacao" },
+  { id: "criptografia", name: "Criptografia", baseStat: "INT", description: "Codificar e decodificar mensagens. Usa INT.", category: "educacao" },
+  { id: "deducao", name: "Dedução", baseStat: "INT", description: "Analisar indícios e chegar a conclusões não óbvias ou diagnóstico médico. Usa INT.", category: "educacao" },
+  { id: "educacao", name: "Educação", baseStat: "INT", description: "Conhecimento geral, educação escolar básica: ler, escrever, matemática básica e história. Usa INT.", category: "educacao" },
+  { id: "jogos", name: "Jogos", baseStat: "INT", description: "Descobrir probabilidades e jogar jogos de azar com sucesso. Usa INT.", category: "educacao" },
+  { id: "linguagem", name: "Linguagem", baseStat: "INT", description: "Falar uma língua particular. Escolha uma língua ao aumentar esta habilidade. Usa INT.", category: "educacao" },
+  { id: "pesquisa-bibliotecaria", name: "Pesquisa Bibliotecária", baseStat: "INT", description: "Usar bancos de dados, Data Pools, bibliotecas e outras fontes de informação. Usa INT.", category: "educacao" },
+  { id: "especialista-local", name: "Especialista Local", baseStat: "INT", description: "Conhecer bem uma área específica, agendas de facções e criminosos. Escolha um local ao aumentar. Usa INT.", category: "educacao" },
+  { id: "ciencias", name: "Ciências", baseStat: "INT", description: "Projetar experimentos, artigos científicos, testar hipóteses. Especifique área (Geologia, Física, etc.). Usa INT.", category: "educacao" },
+  { id: "taticas", name: "Táticas", baseStat: "INT", description: "Gerir uma batalha em grande escala. Saber o que fazer para dirigir uma batalha e como o inimigo pode reagir. Usa INT.", category: "educacao" },
+  { id: "sobrevivencia", name: "Sobrevivência", baseStat: "INT", description: "Sobreviver em um bioma não modificado pelo homem. Usa INT.", category: "educacao" },
+  // Habilidades de luta
+  { id: "briga", name: "Briga", baseStat: "DEX", description: "Lutar com força bruta. Usa DEX.", category: "luta" },
+  { id: "evasao", name: "Evasão", baseStat: "DEX", description: "Esquivar de ataques corpo a corpo; REF 8+ também para ataques à distância. Usa DEX.", category: "luta" },
+  { id: "artes-marciais", name: "Artes Marciais", baseStat: "DEX", description: "Lutar com uma arte marcial (Karate, Taekwondo, Judo, Aikido). Escolha a arte ao aumentar. Usa DEX.", category: "luta" },
+  { id: "melee-weapon", name: "Melee Weapon", baseStat: "DEX", description: "Lutar com armas brancas. Usa DEX.", category: "luta" },
+  // Habilidades de performance
+  { id: "atuacao", name: "Atuação", baseStat: "COOL", description: "Assumir um papel, disfarçar-se, fingir emoções e humores. Usa COOL.", category: "performance" },
+  { id: "tocar-instrumentos", name: "Tocar Instrumentos", baseStat: "TECH", description: "Tocar profissionalmente um instrumento musical. Escolha o instrumento ao aumentar (canto, guitarra, etc.). Usa TECH.", category: "performance" },
+  // Habilidades de arma de longo alcance
+  { id: "arquearia", name: "Arquearia", baseStat: "REF", description: "Disparar com precisão armas de lançamento de flechas. Usa REF.", category: "longo-alcance" },
+  { id: "disparo-automatico", name: "Disparo Automático", baseStat: "REF", description: "Manter o modo de disparo automático de uma arma no alvo através do recuo. Usa REF.", category: "longo-alcance" },
+  { id: "armas-de-uma-mao", name: "Armas de uma Mão", baseStat: "REF", description: "Disparar com precisão armas portáteis como revólveres e pistolas. Usa REF.", category: "longo-alcance" },
+  { id: "armas-pesadas", name: "Armas Pesadas", baseStat: "REF", description: "Disparar com precisão armas de projéteis grandes (lançadores de granadas, foguetes). Usa REF.", category: "longo-alcance" },
+  { id: "armas-de-ombro", name: "Armas de Ombro", baseStat: "REF", description: "Disparar com precisão fuzis, rifles e espingardas. Usa REF.", category: "longo-alcance" },
+  // Habilidades sociais
+  { id: "guarda-roupa-estilo", name: "Guarda-roupa e Estilo", baseStat: "COOL", description: "Saber quais roupas usar e quando usá-las. Usa COOL.", category: "social" },
+  { id: "subornar", name: "Subornar", baseStat: "COOL", description: "Saber quando, como e quanto oferecer para subornar. Usa COOL.", category: "social" },
+  { id: "conversacao", name: "Conversação", baseStat: "EMP", description: "Extrair informações das pessoas sem alertá-las, com conversa cuidadosa. Usa EMP.", category: "social" },
+  { id: "percepcao-humana", name: "Percepção Humana", baseStat: "EMP", description: "Ler expressões faciais e linguagem corporal para discernir estado emocional e detectar mentiras. Usa EMP.", category: "social" },
+  { id: "interrogatorio", name: "Interrogatório", baseStat: "COOL", description: "Extrair informação à força das pessoas. Usa COOL.", category: "social" },
+  { id: "persuasao", name: "Persuasão", baseStat: "COOL", description: "Convencer, persuadir ou influenciar indivíduos. Usa COOL.", category: "social" },
+  { id: "cuidados-pessoais", name: "Cuidados Pessoais", baseStat: "COOL", description: "Preparação adequada para maximizar a atratividade. Usa COOL.", category: "social" },
+  { id: "malandragem", name: "Malandragem", baseStat: "COOL", description: "Fazer e usar contatos para obter mercadorias ilegais e evitar situações ruins em bairros ruins. Usa COOL.", category: "social" },
+  { id: "negociacao", name: "Negociação", baseStat: "COOL", description: "Fazer um bom negócio com um comerciante ou cliente. Usa COOL.", category: "social" },
+  // Habilidades técnicas
+  { id: "tecnologia-aeronaves", name: "Tecnologia de Aeronaves", baseStat: "TECH", description: "Reparar e manter veículos aéreos. Usa TECH.", category: "tecnica" },
+  { id: "tecnologia-basica", name: "Tecnologia Básica", baseStat: "TECH", description: "Identificar, entender e reparar dispositivos eletrónicos e mecânicos simples. Usa TECH.", category: "tecnica" },
+  { id: "cybertecnologia", name: "Cybertecnologia", baseStat: "TECH", description: "Identificar, compreender e reparar componentes cibernéticos. Usa TECH.", category: "tecnica" },
+  { id: "demolicoes", name: "Demolições", baseStat: "TECH", description: "Conhecer, armar e desarmar explosivos. Usa TECH.", category: "tecnica" },
+  { id: "tecnologia-eletronica-seguranca", name: "Tecnologia Eletrónica/Segurança", baseStat: "TECH", description: "Computadores, plataformas cibernéticas, sistemas de segurança, insetos e rastreadores. Usa TECH.", category: "tecnica" },
+  { id: "primeiros-socorros", name: "Primeiros Socorros", baseStat: "TECH", description: "Tratar lesões críticas comuns e manter feridos vivos. Usa TECH.", category: "tecnica" },
+  { id: "falsificacao", name: "Falsificação", baseStat: "TECH", description: "Criar e detectar documentos falsos e identificação. Usa TECH.", category: "tecnica" },
+  { id: "tecnologia-veiculos-terrestres", name: "Tecnologia de Veículos Terrestres", baseStat: "TECH", description: "Reparar e manter veículos terrestres. Usa TECH.", category: "tecnica" },
+  { id: "pintura-desenho-escultura", name: "Pintura/Desenho/Escultura", baseStat: "TECH", description: "Produzir pinturas, desenhos ou esculturas profissionais. Usa TECH.", category: "tecnica" },
+  { id: "paramedico", name: "Paramédico", baseStat: "TECH", description: "Tratar todas as lesões críticas que não necessitam de cirurgia e impedir a morte. Usa TECH.", category: "tecnica" },
+  { id: "fotografia-filme", name: "Fotografia/Filme", baseStat: "TECH", description: "Produzir fotografias, vídeos ou Neurodanças. Usa TECH.", category: "tecnica" },
+  { id: "arrombamento", name: "Arrombamento", baseStat: "TECH", description: "Abrir fechaduras não eletrónicas. Usa TECH.", category: "tecnica" },
+  { id: "bater-carteira", name: "Bater Carteira", baseStat: "TECH", description: "Recuperar itens de outra pessoa e furtar pequenos itens sem ser notado. Usa TECH.", category: "tecnica" },
+  { id: "tecnologia-veiculos-maritimos", name: "Tecnologia de Veículos Marítimos", baseStat: "TECH", description: "Reparar e manter veículos marítimos. Usa TECH.", category: "tecnica" },
+  { id: "tecnologia-armas", name: "Tecnologia de Armas", baseStat: "TECH", description: "Reparar e manter armas de todos os tipos. Usa TECH.", category: "tecnica" },
+];

@@ -1,5 +1,5 @@
 'use client';
-import { BarsOutlined, GlobalOutlined, PlayCircleOutlined } from "@ant-design/icons";
+import { BarsOutlined, GlobalOutlined, PlayCircleOutlined, UserOutlined } from "@ant-design/icons";
 import { Flex, Layout, Row, Tabs, TabsProps } from "antd";
 import { Content, Footer } from "antd/es/layout/layout";
 import AudioCard from "./comps/AudioCard";
@@ -7,6 +7,7 @@ import { MessageBus } from "./comps/MessageBus";
 import SideMenu from "./comps/sideMenu";
 import { LogData, LogDataMetadataSenderData } from "./contexts/MessageBusContext";
 import { ActivityLog } from "./pages/ActivityLog";
+import CharacterData from "./pages/CharacterData";
 import InitiativeTracker from "./pages/InitiativeTracker";
 import MapGrid from "./pages/MapGrid";
 
@@ -41,6 +42,12 @@ export default function Home() {
       label: "Mapa",
       children: <MapGrid/>,
       icon: <GlobalOutlined/>
+    },
+    {
+      key: "4",
+      label: "Personagem",
+      children: <CharacterData/>,
+      icon: <UserOutlined/>
     }
   ]
   return (

@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { InitiativeCombatant, LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
 import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
+import type { CharacterData } from "../types/character";
+import { createDefaultCharacterData } from "../types/character";
 
 const CONNECTION_TIMEOUT_MS = 15000;
 const KEEPALIVE_INTERVAL_MS = 25_000;
@@ -10,6 +12,9 @@ const SYNC_TYPE = "sync";
 const MAP_GRID_SYNC_TYPE = "mapGridSync";
 const INITIATIVE_SYNC_TYPE = "initiativeSync";
 const REQUEST_INITIAL_SYNC_TYPE = "requestInitialSync";
+const USER_DATA_SYNC_TYPE = "userDataSync";
+const USER_DATA_UPDATE_TYPE = "userDataUpdate";
+const USER_SHEETS_SYNC_TYPE = "userSheetsSync";
 
 function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -44,6 +49,13 @@ export function MessageBus (props: any) {
     })
     const [mapGrid, setMapGridState] = useState<MapGridState | null>(null)
     const [initiativeCombatants, setInitiativeCombatantsState] = useState<InitiativeCombatant[]>([])
+    const [userData, setUserDataState] = useState<CharacterData | null>(null)
+    /** Host: saved characters (owner name + optional peerId for client-owned; data). */
+    const [savedCharacters, setSavedCharactersState] = useState<Array<{ ownerName: string; peerId?: string; data: CharacterData }>>([])
+    /** Host: which saved character is currently being edited (owner name). */
+    const [currentEditedOwnerName, setCurrentEditedOwnerNameState] = useState<string | null>(null)
+    /** Client: sheets the host sent for this peer (by name). */
+    const [receivedSheets, setReceivedSheetsState] = useState<CharacterData[]>([])
 
     const peerRef = useRef<Peer | null>(null);
     const connectionsRef = useRef<Array<DataConnection>>([]);
@@ -52,11 +64,17 @@ export function MessageBus (props: any) {
     const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const mapGridRef = useRef<MapGridState | null>(null);
     const initiativeCombatantsRef = useRef<InitiativeCombatant[]>([]);
+    const userDataRef = useRef<CharacterData | null>(null);
+    const currentEditedOwnerNameRef = useRef<string | null>(null);
+    const savedCharactersRef = useRef<Array<{ ownerName: string; peerId?: string; data: CharacterData }>>([]);
+    currentEditedOwnerNameRef.current = currentEditedOwnerName;
+    savedCharactersRef.current = savedCharacters;
 
     connectionsRef.current = connections;
     connectionDisplayNamesRef.current = connectionDisplayNames;
     mapGridRef.current = mapGrid;
     initiativeCombatantsRef.current = initiativeCombatants;
+    userDataRef.current = userData;
 
     function clearKeepaliveInterval() {
       if (keepaliveIntervalRef.current) {
@@ -276,6 +294,14 @@ export function MessageBus (props: any) {
             }
             const grid = mapGridRef.current;
             if (grid) peerConn.send({ metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData, data: grid }, content: {} });
+            const peerName = connectionDisplayNamesRef.current[peerConn.peer] ?? (peerConn.metadata?.label as string) ?? "";
+            const saved = savedCharactersRef.current;
+            const matchingSheets = peerName ? saved.filter((s) => s.ownerName === peerName) : [];
+            const sheetsData = matchingSheets.map((s) => s.data);
+            peerConn.send({
+              metadata: { type: USER_SHEETS_SYNC_TYPE, code: 0, sender: senderData, data: { sheets: sheetsData } },
+              content: {},
+            });
           }
 
           connPeer.on("open", () => {
@@ -288,8 +314,29 @@ export function MessageBus (props: any) {
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
             if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) return;
             if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) return;
+            if (payload.metadata?.type === USER_DATA_SYNC_TYPE) return;
+            if (payload.metadata?.type === USER_SHEETS_SYNC_TYPE) return;
             if (payload.metadata?.type === REQUEST_INITIAL_SYNC_TYPE) {
               sendInitialSyncToPeer(connPeer);
+              return;
+            }
+            if (payload.metadata?.type === USER_DATA_UPDATE_TYPE) {
+              const ud = payload.metadata?.data as CharacterData | null | undefined;
+              if (ud && typeof ud === "object") {
+                const ownerName = connectionDisplayNamesRef.current[connPeer.peer] ?? (connPeer.metadata?.label as string) ?? connPeer.peer ?? "Unknown";
+                setSavedCharactersState((prev) => {
+                  // Remove any existing entry for this peer or same owner so we don't duplicate (e.g. host had "Alice" without peerId, then client Alice sends update)
+                  const rest = prev.filter((s) => s.peerId !== connPeer.peer && s.ownerName !== ownerName);
+                  return [...rest, { ownerName, peerId: connPeer.peer, data: ud }];
+                });
+                setUserDataState(ud);
+                userDataRef.current = ud;
+                const syncPayload = {
+                  metadata: { type: USER_DATA_SYNC_TYPE, code: 0, sender: senderData, data: ud },
+                  content: {},
+                } as LogData;
+                connectionsRef.current.forEach((c) => { if (c.open) c.send(syncPayload); });
+              }
               return;
             }
             if (payload.metadata?.type === "displayName") {
@@ -300,6 +347,20 @@ export function MessageBus (props: any) {
                   connectionDisplayNamesRef.current = next;
                   return next;
                 });
+                setSavedCharactersState((prev) =>
+                  prev.map((entry) =>
+                    entry.peerId === connPeer.peer ? { ...entry, ownerName: name } : entry
+                  )
+                );
+                const saved = savedCharactersRef.current;
+                const matchingSheets = saved.filter((s) => s.ownerName === name || s.peerId === connPeer.peer);
+                if (matchingSheets.length > 0 && connPeer.open) {
+                  const sheetToSend = matchingSheets.find((s) => s.peerId === connPeer.peer) ?? matchingSheets[0];
+                  connPeer.send({
+                    metadata: { type: USER_DATA_SYNC_TYPE, code: 0, sender: senderData, data: sheetToSend.data },
+                    content: {},
+                  } as LogData);
+                }
                 setTimeout(() => sendPeerListToAll(connectionsRef.current), 0);
               }
               return;
@@ -438,6 +499,22 @@ export function MessageBus (props: any) {
             }
             return;
           }
+          if (payload.metadata?.type === USER_SHEETS_SYNC_TYPE) {
+            const payloadData = payload.metadata?.data as { sheets?: CharacterData[] } | undefined;
+            const sheets = Array.isArray(payloadData?.sheets) ? payloadData.sheets : [];
+            setReceivedSheetsState(sheets.filter((s) => s && typeof s === "object" && typeof (s as CharacterData).stats === "object"));
+            setUserDataState(null);
+            return;
+          }
+          if (payload.metadata?.type === USER_DATA_SYNC_TYPE) {
+            const ud = payload.metadata?.data as CharacterData | null | undefined;
+            if (ud && typeof ud === "object" && typeof ud.stats === "object") {
+              setUserDataState(ud);
+            } else if (ud === null) {
+              setUserDataState(null);
+            }
+            return;
+          }
           setMessageLog((prev) => [...prev, { ...payload, id: payload.id ?? nextId() }]);
         });
         dataConn.on("open", () => {
@@ -554,6 +631,85 @@ export function MessageBus (props: any) {
       });
     }
 
+    function setUserData(dataOrUpdater: CharacterData | null | ((prev: CharacterData | null) => CharacterData | null)) {
+      const next = typeof dataOrUpdater === "function"
+        ? dataOrUpdater(userDataRef.current)
+        : dataOrUpdater;
+      if (isHost) {
+        setUserDataState(next);
+        userDataRef.current = next;
+        if (next) {
+          const ownerKey = currentEditedOwnerNameRef.current ?? senderData?.name ?? "Host";
+          setSavedCharactersState((prev) => {
+            const rest = prev.filter((s) => s.ownerName !== ownerKey);
+            return [...rest, { ownerName: ownerKey, data: next }];
+          });
+        }
+        const payload = {
+          metadata: { type: USER_DATA_SYNC_TYPE, code: 0, sender: senderData!, data: next },
+          content: {},
+        } as LogData;
+        connectionsRef.current.forEach((c) => { if (c.open) c.send(payload); });
+      } else if (conn?.open) {
+        conn.send({
+          metadata: { type: USER_DATA_UPDATE_TYPE, code: 0, sender: senderData!, data: next },
+          content: {},
+        } as LogData);
+      }
+    }
+
+    function setSavedCharacter(ownerName: string, data: CharacterData) {
+      if (!isHost) return;
+      setSavedCharactersState((prev) => {
+        const rest = prev.filter((s) => s.ownerName !== ownerName);
+        return [...rest, { ownerName, data }];
+      });
+    }
+
+    function setCurrentEditedOwnerName(name: string | null) {
+      if (!isHost) return;
+      currentEditedOwnerNameRef.current = name;
+      setCurrentEditedOwnerNameState(name);
+    }
+
+    function exportUserData(): string {
+      const ud = userDataRef.current ?? userData;
+      return JSON.stringify(ud ?? createDefaultCharacterData(), null, 2);
+    }
+
+    function importUserData(json: string) {
+      if (!isHost) return;
+      const raw = (json ?? "").replace(/^\uFEFF/, "").trim();
+      if (!raw) {
+        messageApi?.error("Ficheiro vazio.");
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === "object" && parsed !== null && "stats" in parsed) {
+          const ud = parsed as CharacterData;
+          const ownerKey = senderData?.name ?? "Host";
+          setSavedCharactersState((prev) => {
+            const rest = prev.filter((s) => s.ownerName !== ownerKey);
+            return [...rest, { ownerName: ownerKey, data: ud }];
+          });
+          setUserDataState(ud);
+          userDataRef.current = ud;
+          setCurrentEditedOwnerNameState(ownerKey);
+          const payload = {
+            metadata: { type: USER_DATA_SYNC_TYPE, code: 0, sender: senderData!, data: ud },
+            content: {},
+          } as LogData;
+          connectionsRef.current.forEach((c) => { if (c.open) c.send(payload); });
+          messageApi?.success("Dados do personagem importados.");
+        } else {
+          messageApi?.error("JSON inválido: esperado objeto com 'stats'.");
+        }
+      } catch (err) {
+        messageApi?.error("JSON inválido: " + (err instanceof Error ? err.message : String(err)));
+      }
+    }
+
     return <>
       <MessageBusContext.Provider value={{
         messageLog,
@@ -581,6 +737,15 @@ export function MessageBus (props: any) {
         setMapGrid,
         initiativeCombatants,
         setInitiativeCombatants,
+        userData,
+        setUserData,
+        exportUserData,
+        importUserData,
+        savedCharacters,
+        setSavedCharacter,
+        currentEditedOwnerName,
+        setCurrentEditedOwnerName,
+        receivedSheets,
       }}>
         {contextHolder}
         {props.children}

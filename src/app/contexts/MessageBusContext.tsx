@@ -2,6 +2,7 @@ import { message } from "antd";
 import { MessageInstance } from "antd/es/message/interface";
 import Peer, { DataConnection } from "peerjs";
 import { createContext, ReactElement } from "react";
+import type { CharacterData } from "../types/character";
 
 export interface LogDataMetadataSenderData {
   avatar: string,
@@ -76,6 +77,24 @@ export interface MessageBusContextValue {
   initiativeCombatants: InitiativeCombatant[];
   /** Host only: set initiative list and broadcast to clients. Accepts new list or updater (prev => next). */
   setInitiativeCombatants: (listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) => void;
+  /** Character/user data; host is source of truth, synced to peers. */
+  userData: CharacterData | null;
+  /** Host: set and broadcast. Client: send userDataUpdate to host. */
+  setUserData: (dataOrUpdater: CharacterData | null | ((prev: CharacterData | null) => CharacterData | null)) => void;
+  /** Export current userData as JSON string. */
+  exportUserData: () => string;
+  /** Host only: import and broadcast new userData. */
+  importUserData: (json: string) => void;
+  /** Host only: list of saved characters (owner name + optional peerId for client-owned; data). Updated when clients send userData or host saves. Owner name updates when client changes display name. */
+  savedCharacters: { ownerName: string; peerId?: string; data: CharacterData }[];
+  /** Host only: upsert a saved character by owner name. */
+  setSavedCharacter: (ownerName: string, data: CharacterData) => void;
+  /** Host only: which saved character is currently being edited (owner name). Null = not editing from list. */
+  currentEditedOwnerName: string | null;
+  /** Host only: set which character is being edited (for syncing saves back to list). */
+  setCurrentEditedOwnerName: (name: string | null) => void;
+  /** Client only: list of sheets the host sent for this peer (by name match). Show list first, then open one. */
+  receivedSheets: CharacterData[];
 }
 
 const defaultContextValue: MessageBusContextValue = {
@@ -104,6 +123,15 @@ const defaultContextValue: MessageBusContextValue = {
   setMapGrid: () => {},
   initiativeCombatants: [],
   setInitiativeCombatants: () => {},
+  userData: null,
+  setUserData: () => {},
+  exportUserData: () => "",
+  importUserData: () => {},
+  savedCharacters: [],
+  setSavedCharacter: () => {},
+  currentEditedOwnerName: null,
+  setCurrentEditedOwnerName: () => {},
+  receivedSheets: [],
 };
 
 export const MessageBusContext = createContext<MessageBusContextValue>(defaultContextValue);

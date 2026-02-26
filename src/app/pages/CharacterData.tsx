@@ -1,0 +1,1022 @@
+"use client";
+
+import {
+  Button,
+  Card,
+  Collapse,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  List,
+  Modal,
+  Row,
+  Col,
+  Select,
+  Space,
+  Tooltip,
+  Typography,
+} from "antd";
+import {
+  DownloadOutlined,
+  InfoCircleOutlined,
+  PlusOutlined,
+  UploadOutlined,
+  UserOutlined,
+} from "@ant-design/icons";
+import React, { useCallback, useContext, useMemo, useRef, useState } from "react";
+import { MessageBusContext } from "../contexts/MessageBusContext";
+import { MentionText, type MentionEntity } from "../comps/MentionText";
+import type {
+  CharacterData as CharacterDataT,
+  Contact,
+  CyberwareEntry,
+  InventoryEntry,
+  Note,
+  SkillEntry,
+  Stats,
+} from "../types/character";
+import {
+  createDefaultCharacterData,
+  DEFAULT_STAT_KEYS,
+  slugify,
+} from "../types/character";
+import { referenceSkills, SKILL_CATEGORY_LABELS } from "@/data/reference/skills";
+import type { SkillCategoryKey } from "@/app/types/reference";
+import { referenceWeapons } from "@/data/reference/weapons";
+import { referenceWearables } from "@/data/reference/wearables";
+import { referenceConsumables } from "@/data/reference/consumables";
+import { referenceCyberware } from "@/data/reference/cyberware";
+
+const { Title, Text } = Typography;
+
+function nextId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** Short stats line for list summary (e.g. "BODY 6, REF 5, INT 4"). */
+function statsBreakdown(stats: Record<string, number>, keys: string[] = DEFAULT_STAT_KEYS): string {
+  const parts = keys.filter((k) => stats[k] != null).map((k) => `${k} ${stats[k] ?? 0}`);
+  return parts.length ? parts.join(", ") : "—";
+}
+
+export default function CharacterData() {
+  const {
+    userData,
+    setUserData,
+    exportUserData,
+    importUserData,
+    isHost,
+    connected,
+    savedCharacters,
+    currentEditedOwnerName,
+    setCurrentEditedOwnerName,
+    receivedSheets,
+    senderData,
+  } = useContext(MessageBusContext);
+
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const contactRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
+  const noteRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const data = userData ?? null;
+  const canEdit = isHost || connected;
+
+  const mentionEntities: MentionEntity[] = useMemo(() => {
+    const out: MentionEntity[] = [];
+    (data?.contacts ?? []).forEach((c) => out.push({ slug: c.slug, label: c.name, type: "contact" }));
+    (data?.notes ?? []).forEach((n) => out.push({ slug: n.slug, label: n.title, type: "note" }));
+    return out;
+  }, [data?.contacts, data?.notes]);
+
+  const handleMentionClick = useCallback((slug: string, type: "contact" | "note") => {
+    const el = type === "contact" ? contactRefsMap.current[slug] : noteRefsMap.current[slug];
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const initializeData = useCallback(() => {
+    setUserData(createDefaultCharacterData());
+  }, [setUserData]);
+
+  const updateData = useCallback(
+    (updater: (prev: CharacterDataT) => CharacterDataT) => {
+      if (!data) return;
+      setUserData(updater(data));
+    },
+    [data, setUserData]
+  );
+
+  const setStats = useCallback(
+    (stats: Stats) => updateData((d) => ({ ...d, stats })),
+    [updateData]
+  );
+
+  const setStat = useCallback(
+    (key: string, value: number) => {
+      setStats({ ...(data?.stats ?? {}), [key]: value });
+    },
+    [data?.stats, setStats]
+  );
+
+  const setCredits = useCallback(
+    (credits: number) => updateData((d) => ({ ...d, credits })),
+    [updateData]
+  );
+
+  const setSheetName = useCallback(
+    (sheetName: string) => updateData((d) => ({ ...d, sheetName: sheetName || undefined })),
+    [updateData]
+  );
+
+  const setHealth = useCallback(
+    (currentHealth?: number, maxHealth?: number) =>
+      updateData((d) => ({ ...d, currentHealth, maxHealth })),
+    [updateData]
+  );
+  const setHumanity = useCallback(
+    (currentHumanity?: number, maxHumanity?: number) =>
+      updateData((d) => ({ ...d, currentHumanity, maxHumanity })),
+    [updateData]
+  );
+
+  const setSkills = useCallback(
+    (skills: CharacterDataT["skills"]) => updateData((d) => ({ ...d, skills })),
+    [updateData]
+  );
+
+  const setSkillValue = useCallback(
+    (skillKey: string, value: number) => {
+      if (!data) return;
+      const ref = referenceSkills.find((r) => r.id === skillKey);
+      const entry = data.skills[skillKey];
+      const nextEntry: SkillEntry = ref
+        ? { skillId: ref.id, value, ...(entry ?? {}) }
+        : { ...(entry ?? { name: skillKey, baseStat: "INT" }), value };
+      setSkills({ ...data.skills, [skillKey]: nextEntry });
+    },
+    [data, setSkills]
+  );
+
+  const handleExport = useCallback(() => {
+    const json = exportUserData();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "character-data.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [exportUserData]);
+
+  const handleImportConfirm = useCallback(() => {
+    importUserData(importText);
+    setImportModalOpen(false);
+    setImportText("");
+  }, [importUserData, importText]);
+
+  const openCharacter = useCallback(
+    (entry: { ownerName: string; data: CharacterDataT }) => {
+      // Set owner first so host's setUserData uses correct ownerKey when updating savedCharacters (avoids saving as MAESTRO/Host)
+      setCurrentEditedOwnerName(entry.ownerName);
+      setUserData(entry.data);
+    },
+    [setUserData, setCurrentEditedOwnerName]
+  );
+
+  const handleNewCharacter = useCallback(() => {
+    setUserData(createDefaultCharacterData());
+    setCurrentEditedOwnerName(senderData?.name ?? "Host");
+  }, [setUserData, setCurrentEditedOwnerName, senderData?.name]);
+
+  const handleBackToList = useCallback(() => {
+    setUserData(null);
+    setCurrentEditedOwnerName(null);
+  }, [setUserData, setCurrentEditedOwnerName]);
+
+  const CATEGORY_ORDER: SkillCategoryKey[] = [
+    "conscientizacao",
+    "corporal",
+    "controle",
+    "educacao",
+    "luta",
+    "performance",
+    "longo-alcance",
+    "social",
+    "tecnica",
+    "outros",
+  ];
+
+  // Always run same hooks (guard for null data so early returns don't change hook count)
+  const allStatKeys = useMemo(() => {
+    if (!data?.stats) return [...DEFAULT_STAT_KEYS];
+    const set = new Set(DEFAULT_STAT_KEYS);
+    Object.keys(data.stats).forEach((k) => set.add(k));
+    return Array.from(set);
+  }, [data?.stats]);
+
+  const skillEntriesWithMeta = useMemo(() => {
+    if (!data?.skills) return [];
+    const arr: { key: string; name: string; baseStat: string; value: number; description: string; category: SkillCategoryKey }[] = [];
+    referenceSkills.forEach((ref) => {
+      const entry = data.skills[ref.id];
+      const value = entry?.value ?? 0;
+      arr.push({
+        key: ref.id,
+        name: ref.name,
+        baseStat: ref.baseStat,
+        value,
+        description: ref.description,
+        category: ref.category,
+      });
+    });
+    Object.entries(data.skills).forEach(([key, entry]) => {
+      if (referenceSkills.some((r) => r.id === key)) return;
+      arr.push({
+        key,
+        name: entry.name ?? key,
+        baseStat: entry.baseStat ?? "INT",
+        value: entry.value,
+        description: `Perícia personalizada. Usa ${entry.baseStat ?? "INT"}.`,
+        category: "outros",
+      });
+    });
+    return arr;
+  }, [data?.skills]);
+
+  const skillsByCategory = useMemo(() => {
+    if (!data?.skills) return [];
+    const byCat = new Map<SkillCategoryKey, (typeof skillEntriesWithMeta)[0][]>();
+    CATEGORY_ORDER.forEach((c) => byCat.set(c, []));
+    skillEntriesWithMeta.forEach((item) => {
+      const list = byCat.get(item.category);
+      if (list) list.push(item);
+    });
+    return CATEGORY_ORDER.map((category) => ({
+      category,
+      items: byCat.get(category)!,
+    })).filter((g) => g.items.length > 0);
+  }, [skillEntriesWithMeta]);
+
+  // Host: first part of flow = list of saved characters
+  const hostListBlock = isHost && (
+    <Card size="small" title="Personagens guardados" style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 8 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleNewCharacter}>
+          Novo personagem
+        </Button>
+      </div>
+      {savedCharacters.length === 0 ? (
+        <Text type="secondary">Ainda não há personagens. Crie um ou peça aos jogadores para enviarem as fichas.</Text>
+      ) : (
+        <List
+          size="small"
+          dataSource={savedCharacters}
+          renderItem={(entry) => (
+            <List.Item
+              actions={[
+                <Button key="open" type="link" size="small" onClick={() => openCharacter(entry)}>
+                  Abrir
+                </Button>,
+              ]}
+            >
+              <div>
+                <Text strong>{entry.data.sheetName?.trim() || entry.ownerName}</Text>
+                {(entry.data.sheetName?.trim() && entry.ownerName) ? (
+                  <div style={{ fontSize: 12 }}>
+                    <Text type="secondary">por {entry.ownerName}</Text>
+                  </div>
+                ) : null}
+                <div style={{ marginTop: 4 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {statsBreakdown(entry.data.stats)}
+                  </Text>
+                </div>
+                <div style={{ marginTop: 2, fontSize: 12 }}>
+                  <Text type="secondary">
+                    Vida: {entry.data.currentHealth ?? "—"} / {entry.data.maxHealth ?? "—"}
+                    {" · "}
+                    Humanidade: {entry.data.currentHumanity ?? "—"} / {entry.data.maxHumanity ?? "—"}
+                  </Text>
+                </div>
+              </div>
+            </List.Item>
+          )}
+        />
+      )}
+    </Card>
+  );
+
+  // Client: show list of sheets host sent, or empty + Inicializar ficha
+  if (!data && !isHost) {
+    if (receivedSheets.length > 0) {
+      return (
+        <div style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <Title level={4} style={{ margin: 0 }}>
+              <UserOutlined /> Personagem
+            </Title>
+          </div>
+          <Card title="Fichas enviadas pelo host">
+            <List
+              dataSource={receivedSheets}
+              renderItem={(sheet) => (
+                <List.Item
+                  actions={[
+                    <Button key="open" type="primary" onClick={() => setUserData(sheet)}>
+                      Abrir
+                    </Button>,
+                  ]}
+                >
+                  <List.Item.Meta
+                    title={sheet.sheetName || "Sem nome"}
+                    description={statsBreakdown(sheet.stats ?? {})}
+                  />
+                </List.Item>
+              )}
+            />
+          </Card>
+        </div>
+      );
+    }
+    return (
+      <div style={{ padding: 24, textAlign: "center" }}>
+        <Empty description="Nenhum dado de personagem carregado.">
+          <Button type="primary" icon={<PlusOutlined />} onClick={initializeData}>
+            Inicializar ficha
+          </Button>
+        </Empty>
+      </div>
+    );
+  }
+
+  // Host with no character selected: show list only + prompt
+  if (isHost && !data) {
+    return (
+      <div style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <Title level={4} style={{ margin: 0 }}>
+            <UserOutlined /> Personagem
+          </Title>
+        </div>
+        {hostListBlock}
+        <Empty description="Selecione um personagem para editar ou crie um novo." />
+      </div>
+    );
+  }
+
+  // From here on we have data (host with open character or client with their sheet)
+
+  return (
+    <div style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          <UserOutlined /> Personagem
+          {isHost && currentEditedOwnerName && (
+            <Text type="secondary" style={{ marginLeft: 8, fontWeight: "normal" }}>
+              ({currentEditedOwnerName})
+            </Text>
+          )}
+        </Title>
+        <Space>
+          {isHost && (
+            <Button onClick={handleBackToList}>
+              Voltar à lista
+            </Button>
+          )}
+          <Button icon={<DownloadOutlined />} onClick={handleExport}>
+            Exportar
+          </Button>
+          {isHost && (
+            <Button icon={<UploadOutlined />} onClick={() => setImportModalOpen(true)}>
+              Importar
+            </Button>
+          )}
+        </Space>
+      </div>
+
+      {isHost && hostListBlock}
+
+      <Form layout="vertical" style={{ marginBottom: 16 }}>
+        <Form.Item label="Nome da ficha">
+          <Input
+            placeholder="Ex.: Nome do personagem ou apelido"
+            value={data.sheetName ?? ""}
+            onChange={(e) => setSheetName(e.target.value)}
+            disabled={!canEdit}
+            allowClear
+          />
+        </Form.Item>
+      </Form>
+
+      <Collapse
+        defaultActiveKey={["stats", "health", "credits", "inventory", "cyberware", "info"]}
+        items={[
+          {
+            key: "stats",
+            label: "Atributos e perícias",
+            children: (
+              <>
+                <Title level={5}>Atributos</Title>
+                <Form layout="inline" style={{ marginBottom: 16 }}>
+                  {allStatKeys.map((key) => (
+                    <Form.Item key={key} label={key} style={{ marginRight: 16 }}>
+                      <InputNumber
+                        min={0}
+                        max={20}
+                        value={data.stats[key] ?? 0}
+                        onChange={(v) => setStat(key, v ?? 0)}
+                        disabled={!canEdit}
+                      />
+                    </Form.Item>
+                  ))}
+                </Form>
+                <Title level={5}>Perícias</Title>
+                <Collapse
+                  size="small"
+                  style={{ marginTop: 8 }}
+                  items={skillsByCategory.map(({ category, items }) => {
+                    const mid = Math.ceil(items.length / 2);
+                    const left = items.slice(0, mid);
+                    const right = items.slice(mid);
+                    const renderSkill = (item: (typeof items)[0]) => {
+                      const statVal = data.stats[item.baseStat] ?? 0;
+                      const sum = statVal + item.value;
+                      return (
+                        <List.Item
+                          key={item.key}
+                          style={{ border: "none", padding: "4px 0" }}
+                          actions={
+                            canEdit
+                              ? [
+                                  <InputNumber
+                                    key="val"
+                                    min={0}
+                                    max={20}
+                                    size="small"
+                                    style={{ width: 56 }}
+                                    value={item.value}
+                                    onChange={(v) => setSkillValue(item.key, v ?? 0)}
+                                  />,
+                                ]
+                              : undefined
+                          }
+                        >
+                          <Space size="small">
+                            <Tooltip title={item.description}>
+                              <InfoCircleOutlined style={{ color: "#999" }} />
+                            </Tooltip>
+                            <Text strong>{item.name}</Text>
+                            <Text type="secondary">({item.baseStat})</Text>
+                            <Text>= {sum}</Text>
+                          </Space>
+                        </List.Item>
+                      );
+                    };
+                    return {
+                      key: category,
+                      label: SKILL_CATEGORY_LABELS[category],
+                      children: (
+                        <Row gutter={[16, 0]}>
+                          <Col xs={24} md={12}>
+                            <List size="small" bordered={false} dataSource={left} renderItem={renderSkill} />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <List size="small" bordered={false} dataSource={right} renderItem={renderSkill} />
+                          </Col>
+                        </Row>
+                      ),
+                    };
+                  })}
+                />
+              </>
+            ),
+          },
+          {
+            key: "health",
+            label: "Vida e humanidade",
+            children: (
+              <>
+                <Space size="middle" wrap>
+                  <Form.Item label="Vida atual">
+                    <InputNumber
+                      min={0}
+                      value={data.currentHealth}
+                      onChange={(v) => setHealth(v ?? undefined, data.maxHealth)}
+                      disabled={!canEdit}
+                      style={{ width: 72 }}
+                    />
+                  </Form.Item>
+                  <Form.Item label="Vida máx.">
+                    <InputNumber
+                      min={0}
+                      value={data.maxHealth}
+                      onChange={(v) => setHealth(data.currentHealth, v ?? undefined)}
+                      disabled={!canEdit}
+                      style={{ width: 72 }}
+                    />
+                  </Form.Item>
+                  <Form.Item label="Humanidade atual">
+                    <InputNumber
+                      min={0}
+                      value={data.currentHumanity}
+                      onChange={(v) => setHumanity(v ?? undefined, data.maxHumanity)}
+                      disabled={!canEdit}
+                      style={{ width: 72 }}
+                    />
+                  </Form.Item>
+                  <Form.Item label="Humanidade máx.">
+                    <InputNumber
+                      min={0}
+                      value={data.maxHumanity}
+                      onChange={(v) => setHumanity(data.currentHumanity, v ?? undefined)}
+                      disabled={!canEdit}
+                      style={{ width: 72 }}
+                    />
+                  </Form.Item>
+                </Space>
+              </>
+            ),
+          },
+          {
+            key: "credits",
+            label: "Créditos (eb)",
+            children: (
+              <Form.Item label="Créditos">
+                <InputNumber
+                  min={0}
+                  value={data.credits}
+                  onChange={(v) => setCredits(v ?? 0)}
+                  disabled={!canEdit}
+                  style={{ width: 120 }}
+                />
+              </Form.Item>
+            ),
+          },
+          {
+            key: "inventory",
+            label: "Inventário",
+            children: (
+              <InventorySection
+                weapons={data.weapons}
+                wearables={data.wearables}
+                consumables={data.consumables}
+                canEdit={canEdit}
+                updateData={updateData}
+              />
+            ),
+          },
+          {
+            key: "cyberware",
+            label: "Cyberware",
+            children: (
+              <CyberwareSection
+                cyberware={data.cyberware}
+                canEdit={canEdit}
+                updateData={updateData}
+              />
+            ),
+          },
+          {
+            key: "info",
+            label: "Informação (Contactos e Notas)",
+            children: (
+              <InfoSection
+                contacts={data.contacts}
+                notes={data.notes}
+                canEdit={canEdit}
+                updateData={updateData}
+                mentionEntities={mentionEntities}
+                onMentionClick={handleMentionClick}
+                contactRefsMap={contactRefsMap}
+                noteRefsMap={noteRefsMap}
+              />
+            ),
+          },
+        ]}
+      />
+
+      <Modal
+        title="Importar dados do personagem"
+        open={importModalOpen}
+        onOk={handleImportConfirm}
+        onCancel={() => { setImportModalOpen(false); setImportText(""); }}
+        okText="Importar"
+      >
+        <Input.TextArea
+          rows={8}
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          placeholder="Colar JSON exportado..."
+        />
+      </Modal>
+    </div>
+  );
+}
+
+function InventorySection({
+  weapons,
+  wearables,
+  consumables,
+  canEdit,
+  updateData,
+}: {
+  weapons: InventoryEntry[];
+  wearables: InventoryEntry[];
+  consumables: InventoryEntry[];
+  canEdit: boolean;
+  updateData: (updater: (prev: CharacterDataT) => CharacterDataT) => void;
+}) {
+  const [addModal, setAddModal] = useState<"weapon" | "wearable" | "consumable" | null>(null);
+  const [addForm] = Form.useForm();
+
+  const addEntry = (kind: "weapons" | "wearables" | "consumables", entry: InventoryEntry) => {
+    updateData((d) => ({
+      ...d,
+      [kind]: [...d[kind], { ...entry, quantity: entry.quantity || 1 }],
+    }));
+  };
+
+  const removeEntry = (kind: "weapons" | "wearables" | "consumables", index: number) => {
+    updateData((d) => ({
+      ...d,
+      [kind]: d[kind].filter((_, i) => i !== index),
+    }));
+  };
+
+  const refs = {
+    weapons: referenceWeapons,
+    wearables: referenceWearables,
+    consumables: referenceConsumables,
+  };
+
+  const handleAdd = (kind: "weapon" | "wearable" | "consumable") => {
+    addForm.resetFields();
+    setAddModal(kind);
+  };
+
+  const handleAddOk = () => {
+    const k = addModal!;
+    const key = (k + "s") as "weapons" | "wearables" | "consumables";
+    addForm.validateFields().then((vals) => {
+      const entry: InventoryEntry = {
+        name: vals.name ?? vals.referenceId ?? "Item",
+        quantity: vals.quantity ?? 1,
+        referenceId: vals.referenceId,
+        notes: vals.notes,
+      };
+      addEntry(key, entry);
+      setAddModal(null);
+    });
+  };
+
+  const renderList = (
+    title: string,
+    kind: "weapons" | "wearables" | "consumables",
+    items: InventoryEntry[]
+  ) => (
+    <Card size="small" title={title} style={{ marginBottom: 12 }}>
+      <List
+        size="small"
+        dataSource={items}
+        renderItem={(item, idx) => (
+          <List.Item
+            actions={
+              canEdit
+                ? [<Button key="x" type="link" danger size="small" onClick={() => removeEntry(kind, idx)}>Remover</Button>]
+                : undefined
+            }
+          >
+            {item.name} × {item.quantity}
+            {item.notes ? ` — ${item.notes}` : ""}
+          </List.Item>
+        )}
+      />
+      {canEdit && (
+        <Button type="dashed" icon={<PlusOutlined />} onClick={() => handleAdd(kind.slice(0, -1) as "weapon" | "wearable" | "consumable")}>
+          Adicionar
+        </Button>
+      )}
+    </Card>
+  );
+
+  return (
+    <>
+      {renderList("Armas", "weapons", weapons)}
+      {renderList("Vestuário / Armadura", "wearables", wearables)}
+      {renderList("Consumíveis", "consumables", consumables)}
+      <Modal
+        title={`Adicionar ${addModal === "weapon" ? "arma" : addModal === "wearable" ? "vestuário" : "consumível"}`}
+        open={addModal !== null}
+        onOk={handleAddOk}
+        onCancel={() => setAddModal(null)}
+      >
+        <Form form={addForm} layout="vertical">
+          <Form.Item name="referenceId" label="Da referência (opcional)">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Custom..."
+              options={
+                addModal
+                  ? refs[addModal + "s" as "weapons" | "wearables" | "consumables"].map((r) => ({
+                      value: r.id,
+                      label: `${r.name} (${r.price} eb)`,
+                    }))
+                  : []
+              }
+              onChange={(v) => {
+                if (!v || !addModal) return;
+                const arr = refs[addModal + "s" as "weapons" | "wearables" | "consumables"];
+                const ref = arr.find((r) => r.id === v);
+                if (ref) addForm.setFieldValue("name", ref.name);
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
+            <Input placeholder="Nome do item" />
+          </Form.Item>
+          <Form.Item name="quantity" label="Quantidade" initialValue={1}>
+            <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="notes" label="Notas">
+            <Input placeholder="Notas" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  );
+}
+
+function CyberwareSection({
+  cyberware,
+  canEdit,
+  updateData,
+}: {
+  cyberware: CyberwareEntry[];
+  canEdit: boolean;
+  updateData: (updater: (prev: CharacterDataT) => CharacterDataT) => void;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form] = Form.useForm();
+
+  const add = (entry: CyberwareEntry) => {
+    updateData((d) => ({ ...d, cyberware: [...d.cyberware, entry] }));
+  };
+
+  const remove = (index: number) => {
+    updateData((d) => ({ ...d, cyberware: d.cyberware.filter((_, i) => i !== index) }));
+  };
+
+  const handleOk = () => {
+    form.validateFields().then((vals) => {
+      add({
+        name: vals.name ?? "Cyberware",
+        referenceId: vals.referenceId,
+        notes: vals.notes,
+        humanityCost: vals.humanityCost,
+      });
+      form.resetFields();
+      setModalOpen(false);
+    });
+  };
+
+  return (
+    <>
+      <List
+        size="small"
+        dataSource={cyberware}
+        renderItem={(item, idx) => (
+          <List.Item
+            actions={
+              canEdit
+                ? [<Button key="x" type="link" danger size="small" onClick={() => remove(idx)}>Remover</Button>]
+                : undefined
+            }
+          >
+            {item.name}
+            {item.notes ? ` — ${item.notes}` : ""}
+          </List.Item>
+        )}
+      />
+      {canEdit && (
+        <Button type="dashed" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+          Adicionar cyberware
+        </Button>
+      )}
+      <Modal title="Adicionar cyberware" open={modalOpen} onOk={handleOk} onCancel={() => setModalOpen(false)}>
+        <Form form={form} layout="vertical">
+          <Form.Item name="referenceId" label="Da referência (opcional)">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Custom..."
+              options={referenceCyberware.map((r) => ({
+                value: r.id,
+                label: `${r.name} (${r.price} eb)`,
+              }))}
+              onChange={(v) => {
+                const ref = referenceCyberware.find((r) => r.id === v);
+                if (ref) {
+                  form.setFieldsValue({ name: ref.name, humanityCost: ref.humanityCost });
+                }
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="humanityCost" label="Custo de humanidade">
+            <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="notes" label="Notas">
+            <Input />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  );
+}
+
+function InfoSection({
+  contacts,
+  notes,
+  canEdit,
+  updateData,
+  mentionEntities,
+  onMentionClick,
+  contactRefsMap,
+  noteRefsMap,
+}: {
+  contacts: Contact[];
+  notes: Note[];
+  canEdit: boolean;
+  updateData: (updater: (prev: CharacterDataT) => CharacterDataT) => void;
+  mentionEntities: MentionEntity[];
+  onMentionClick: (slug: string, type: "contact" | "note") => void;
+  contactRefsMap: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+  noteRefsMap: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+}) {
+  const [contactModal, setContactModal] = useState<Contact | null>(null);
+  const [noteModal, setNoteModal] = useState<Note | null>(null);
+  const [contactForm] = Form.useForm();
+  const [noteForm] = Form.useForm();
+
+  const addContact = () => {
+    contactForm.resetFields();
+    setContactModal({
+      id: nextId(),
+      name: "",
+      shortDescription: "",
+      longDescription: "",
+      affiliation: "",
+      slug: "",
+    });
+  };
+
+  const saveContact = () => {
+    contactForm.validateFields().then((vals) => {
+      const name = vals.name ?? "";
+      const slug = slugify(name);
+      const c: Contact = {
+        id: (contactModal?.id) ?? nextId(),
+        name,
+        shortDescription: vals.shortDescription ?? "",
+        longDescription: vals.longDescription ?? "",
+        affiliation: vals.affiliation ?? "",
+        slug,
+      };
+      const existing = contacts.find((x) => x.id === c.id);
+      if (existing) {
+        updateData((d) => ({
+          ...d,
+          contacts: d.contacts.map((x) => (x.id === c.id ? c : x)),
+        }));
+      } else {
+        updateData((d) => ({ ...d, contacts: [...d.contacts, c] }));
+      }
+      setContactModal(null);
+    });
+  };
+
+  const removeContact = (id: string) => {
+    updateData((d) => ({ ...d, contacts: d.contacts.filter((c) => c.id !== id) }));
+  };
+
+  const addNote = () => {
+    noteForm.resetFields();
+    setNoteModal({
+      id: nextId(),
+      title: "",
+      content: "",
+      slug: "",
+    });
+  };
+
+  const saveNote = () => {
+    noteForm.validateFields().then((vals) => {
+      const title = vals.title ?? "";
+      const slug = slugify(title);
+      const n: Note = {
+        id: (noteModal?.id) ?? nextId(),
+        title,
+        content: vals.content ?? "",
+        slug,
+      };
+      const existing = notes.find((x) => x.id === n.id);
+      if (existing) {
+        updateData((d) => ({
+          ...d,
+          notes: d.notes.map((x) => (x.id === n.id ? n : x)),
+        }));
+      } else {
+        updateData((d) => ({ ...d, notes: [...d.notes, n] }));
+      }
+      setNoteModal(null);
+    });
+  };
+
+  const removeNote = (id: string) => {
+    updateData((d) => ({ ...d, notes: d.notes.filter((n) => n.id !== id) }));
+  };
+
+  return (
+    <>
+      <Title level={5}>Contactos</Title>
+      {contacts.map((c) => (
+        <Card
+          key={c.id}
+          size="small"
+          ref={(el) => { contactRefsMap.current[c.slug] = el; }}
+          style={{ marginBottom: 8 }}
+          title={c.name}
+          extra={
+            canEdit && (
+              <Space>
+                <Button size="small" onClick={() => { setContactModal(c); contactForm.setFieldsValue(c); }}>Editar</Button>
+                <Button size="small" danger onClick={() => removeContact(c.id)}>Remover</Button>
+              </Space>
+            )
+          }
+        >
+          <p><Text type="secondary">Resumo:</Text> <MentionText text={c.shortDescription} entities={mentionEntities} onMentionClick={onMentionClick} /></p>
+          <p><Text type="secondary">Descrição:</Text> <MentionText text={c.longDescription} entities={mentionEntities} onMentionClick={onMentionClick} /></p>
+          <p><Text type="secondary">Afiliação:</Text> <MentionText text={c.affiliation} entities={mentionEntities} onMentionClick={onMentionClick} /></p>
+        </Card>
+      ))}
+      {canEdit && <Button type="dashed" icon={<PlusOutlined />} onClick={addContact} style={{ marginBottom: 16 }}>Adicionar contacto</Button>}
+
+      <Title level={5}>Notas</Title>
+      {notes.map((n) => (
+        <Card
+          key={n.id}
+          size="small"
+          ref={(el) => { noteRefsMap.current[n.slug] = el; }}
+          style={{ marginBottom: 8 }}
+          title={n.title}
+          extra={
+            canEdit && (
+              <Space>
+                <Button size="small" onClick={() => { setNoteModal(n); noteForm.setFieldsValue(n); }}>Editar</Button>
+                <Button size="small" danger onClick={() => removeNote(n.id)}>Remover</Button>
+              </Space>
+            )
+          }
+        >
+          <MentionText text={n.content} entities={mentionEntities} onMentionClick={onMentionClick} />
+        </Card>
+      ))}
+      {canEdit && <Button type="dashed" icon={<PlusOutlined />} onClick={addNote}>Adicionar nota</Button>}
+
+      <Modal title={contactModal?.id ? "Editar contacto" : "Novo contacto"} open={!!contactModal} onOk={saveContact} onCancel={() => setContactModal(null)} width={560}>
+        <Form form={contactForm} layout="vertical" initialValues={contactModal ?? undefined}>
+          <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
+            <Input placeholder="Nome (usado para @menção)" />
+          </Form.Item>
+          <Form.Item name="shortDescription" label="Resumo">
+            <Input.TextArea rows={2} placeholder="Pode usar @slug para ligar a outros contactos/notas" />
+          </Form.Item>
+          <Form.Item name="longDescription" label="Descrição longa">
+            <Input.TextArea rows={3} placeholder="Pode usar @slug" />
+          </Form.Item>
+          <Form.Item name="affiliation" label="Afiliação">
+            <Input placeholder="Pode usar @slug" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal title={noteModal?.id ? "Editar nota" : "Nova nota"} open={!!noteModal} onOk={saveNote} onCancel={() => setNoteModal(null)} width={560}>
+        <Form form={noteForm} layout="vertical" initialValues={noteModal ?? undefined}>
+          <Form.Item name="title" label="Título" rules={[{ required: true }]}>
+            <Input placeholder="Título (usado para @menção)" />
+          </Form.Item>
+          <Form.Item name="content" label="Conteúdo">
+            <Input.TextArea rows={5} placeholder="Pode usar @slug para ligar a contactos/notas" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  );
+}
