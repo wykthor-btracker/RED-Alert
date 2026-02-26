@@ -3,8 +3,9 @@ import { useContext, useRef, useState } from "react";
 import { MessageBusContext } from "../contexts/MessageBusContext";
 
 
-export default function DiceRoller (props: any) {
-    const {messageApi, send, senderData}          = useContext(MessageBusContext)
+export default function DiceRoller (props: { dmTarget?: string | null }) {
+    const { messageApi, send, sendDirect, senderData } = useContext(MessageBusContext)
+    const { dmTarget } = props
     const [toRoll, setToRoll]   = useState(1)
     const inputRef              = useRef<InputRef>(null)
 
@@ -50,16 +51,20 @@ export default function DiceRoller (props: any) {
             }
             message = `${toRoll}d${size} = ${toString}, ${crits} críticos! ${crits ? "💥": ""}`
         }
-        if(senderData) {
-            send({
-                content: {message},
-                metadata: {
-                    sender: senderData,
-                    code: 2,
-                    type: "message",
-                    data: {}
-                }
-            })
+        if (senderData) {
+            if (dmTarget) {
+                sendDirect(dmTarget, message)
+            } else {
+                send({
+                    content: { message },
+                    metadata: {
+                        sender: senderData,
+                        code: 2,
+                        type: "message",
+                        data: {},
+                    },
+                })
+            }
         }
     }
     return (

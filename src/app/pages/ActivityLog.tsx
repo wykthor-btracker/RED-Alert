@@ -174,7 +174,7 @@ export function ActivityLog (props: any) {
 
     return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <DiceRoller/>
+      <DiceRoller dmTarget={dmTarget} />
       <Row style={{ justifyItems: "space-between", flex: chatCollapsed ? "0 0 auto" : "1 1 auto", minHeight: 0 }} gutter={[16, 16]}>
         <Col span={24} style={{ flexShrink: 0 }}>
           <Row align="middle" justify="space-between" wrap style={{ marginBottom: 4 }}>

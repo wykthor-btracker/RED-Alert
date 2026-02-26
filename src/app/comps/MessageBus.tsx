@@ -31,7 +31,9 @@ export function MessageBus (props: any) {
     const [isHost, setIsHost]           = useState(false)
     const [connections, setConnections] = useState<Array<DataConnection>>([])
     const [peerList, setPeerList] = useState<string[]>([])
-    const [connected, setConnected]     = useState(false)
+    const [connected, setConnected] = useState(false)
+    /** Host: display name overrides per connection peer id (set when client sends displayName). */
+    const [connectionDisplayNames, setConnectionDisplayNames] = useState<Record<string, string>>({})
     const randomKey                     = Math.floor(Math.random()*100)
     const [senderData, setSenderData]   = useState<LogDataMetadataSenderData>({
       avatar: `https://api.dicebear.com/9.x/rings/svg?seed=${randomKey}`,
@@ -40,10 +42,12 @@ export function MessageBus (props: any) {
 
     const peerRef = useRef<Peer | null>(null);
     const connectionsRef = useRef<Array<DataConnection>>([]);
+    const connectionDisplayNamesRef = useRef<Record<string, string>>({});
     const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     connectionsRef.current = connections;
+    connectionDisplayNamesRef.current = connectionDisplayNames;
 
     function clearKeepaliveInterval() {
       if (keepaliveIntervalRef.current) {
@@ -91,7 +95,7 @@ export function MessageBus (props: any) {
         if (data.metadata?.type === "direct") {
           setMessageLog(prev => [...prev, withId]);
           const target = connectionsRef.current.find(
-            (c) => (c.metadata?.label ?? c.peer) === data.metadata?.data?.targetName
+            (c) => (connectionDisplayNames[c.peer] ?? c.metadata?.label ?? c.peer) === data.metadata?.data?.targetName
           );
           if (target?.open) target.send(withId);
         } else {
@@ -126,7 +130,9 @@ export function MessageBus (props: any) {
       };
       connectionsRef.current.forEach((c) => { if (c.open) c.send(syncPayload); });
       // Resend peer list so clients (and host UI) keep the connected-players list visible
-      const labels = connectionsRef.current.map((c) => (c.metadata?.label as string) || c.peer || "").filter(Boolean);
+      const labels = connectionsRef.current
+        .map((c) => connectionDisplayNames[c.peer] ?? (c.metadata?.label as string) ?? c.peer ?? "")
+        .filter(Boolean);
       connectionsRef.current.forEach((c) => {
         if (c.open) c.send({ metadata: { type: "peerList", code: 0, sender: senderData!, data: { peers: labels } }, content: {} });
       });
@@ -244,7 +250,10 @@ export function MessageBus (props: any) {
           setMessageLog(prev => [...prev, messageReport]);
 
           function sendPeerListToAll(conns: DataConnection[]) {
-            const labels = conns.map((c) => (c.metadata?.label as string) || c.peer || "").filter(Boolean);
+            const displayNames = connectionDisplayNamesRef.current;
+            const labels = conns
+              .map((c) => displayNames[c.peer] ?? (c.metadata?.label as string) ?? c.peer ?? "")
+              .filter(Boolean);
             conns.forEach((c) => {
               if (c.open) c.send({ metadata: { type: "peerList", code: 0, sender: senderData, data: { peers: labels } }, content: {} });
             });
@@ -254,12 +263,25 @@ export function MessageBus (props: any) {
           connPeer.on("data", (data) => {
             const payload = data as LogData;
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
+            if (payload.metadata?.type === "displayName") {
+              const name = payload.metadata?.data?.name as string | undefined;
+              if (name != null) {
+                setConnectionDisplayNames((prev) => {
+                  const next = { ...prev, [connPeer.peer]: name };
+                  connectionDisplayNamesRef.current = next;
+                  return next;
+                });
+                setTimeout(() => sendPeerListToAll(connectionsRef.current), 0);
+              }
+              return;
+            }
             const withId = { ...payload, id: payload.id ?? nextId() };
             if (payload.metadata?.type === "direct") {
               connPeer.send(withId);
               const targetName = payload.metadata?.data?.targetName;
+              const displayNames = connectionDisplayNamesRef.current;
               const target = connectionsRef.current.find(
-                (c) => (c.metadata?.label ?? c.peer) === targetName
+                (c) => (displayNames[c.peer] ?? c.metadata?.label ?? c.peer) === targetName
               );
               if (target?.open && target !== connPeer) target.send(withId);
             } else {
@@ -267,6 +289,12 @@ export function MessageBus (props: any) {
             }
           });
           connPeer.on("close", () => {
+            setConnectionDisplayNames((prev) => {
+              const next = { ...prev };
+              delete next[connPeer.peer];
+              connectionDisplayNamesRef.current = next;
+              return next;
+            });
             setConnections(prev => {
               const next = prev.filter(c => c !== connPeer);
               setTimeout(() => sendPeerListToAll(next), 0);
@@ -274,6 +302,12 @@ export function MessageBus (props: any) {
             });
           });
           connPeer.on("error", () => {
+            setConnectionDisplayNames((prev) => {
+              const next = { ...prev };
+              delete next[connPeer.peer];
+              connectionDisplayNamesRef.current = next;
+              return next;
+            });
             setConnections(prev => {
               const next = prev.filter(c => c !== connPeer);
               setTimeout(() => sendPeerListToAll(next), 0);
@@ -411,17 +445,31 @@ export function MessageBus (props: any) {
     }
 
     const connectionLabels = isHost
-      ? connections.map((c) => (c.metadata?.label as string) || c.peer || "").filter(Boolean)
+      ? connections
+          .map((c) => connectionDisplayNames[c.peer] ?? (c.metadata?.label as string) ?? c.peer ?? "")
+          .filter(Boolean)
       : peerList;
 
     const connectionSenders: LogDataMetadataSenderData[] = isHost
       ? connections
           .map((c) => ({
             avatar: (c.metadata?.avatar as string) ?? "",
-            name: (c.metadata?.label as string) || c.peer || "",
+            name: connectionDisplayNames[c.peer] ?? (c.metadata?.label as string) ?? c.peer ?? "",
           }))
           .filter((p) => p.name)
       : peerList.map((label) => ({ avatar: "", name: label }));
+
+    function updateDisplayName(name: string) {
+      const trimmed = (name ?? "").trim();
+      if (!trimmed) return;
+      setSenderData((prev) => (prev ? { ...prev, name: trimmed } : prev));
+      if (!isHost && conn?.open) {
+        conn.send({
+          metadata: { type: "displayName", code: 0, sender: senderData, data: { name: trimmed } },
+          content: {},
+        } as LogData);
+      }
+    }
 
     return <>
       <MessageBusContext.Provider value={{
@@ -438,6 +486,7 @@ export function MessageBus (props: any) {
         host,
         node,
         disconnect,
+        updateDisplayName,
         connections,
         connected,
         messageApi,

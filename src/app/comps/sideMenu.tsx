@@ -1,34 +1,70 @@
 import { Button, Col, Input, Row } from "antd"
-import React, { useContext, useState } from "react"
+import React, { useContext, useEffect, useState } from "react"
 import { MessageBusContext } from "../contexts/MessageBusContext"
 
 export default function SideMenu (props: any) {
-    const {messageApi, ID, host, node, isHost, connected, disconnect} = useContext(MessageBusContext)
+    const { messageApi, ID, host, node, isHost, connected, disconnect, updateDisplayName, senderData } = useContext(MessageBusContext)
     const [connectionInput, setConnectionInput] = useState("")
-    return <>
-        {!connected ? 
+    const [displayNameInput, setDisplayNameInput] = useState(senderData?.name ?? "")
+    useEffect(() => {
+      setDisplayNameInput(senderData?.name ?? "")
+    }, [senderData?.name])
+    return (
+        <Row gutter={8} align="middle" wrap={false}>
+          {!connected ? (
             <>
-              <Input value={connectionInput} onChange={(event)=>{setConnectionInput(event.target.value)}}></Input>
-              <Button onClick={()=>{
-                  host()
-              }}>Host</Button>
-              <Button onClick={()=>{
-                  node(connectionInput)
-                }}>Node
-              </Button> 
+              <Col flex="1" style={{ minWidth: 0 }}>
+                <Input
+                  value={connectionInput}
+                  onChange={(e) => setConnectionInput(e.target.value)}
+                  placeholder="ID do host"
+                />
+              </Col>
+              <Col flex="none">
+                <Button onClick={() => host()}>Host</Button>
+              </Col>
+              <Col flex="none">
+                <Button onClick={() => node(connectionInput)}>Node</Button>
+              </Col>
             </>
-            : <Row>
-                <Col>
-                {isHost ? 
-                  <Button onClick={()=>{
-                      navigator.clipboard.writeText(ID)
-                      messageApi?.info(`ID copiado para área de transferência: ${ID}`)
-                      }}>ID: {ID}
-                  </Button> 
-                : <Button
-                    onClick={()=>{ disconnect() }}>Desconectar</Button>}
-                </Col> 
-              </Row>
-        }
-    </>
+          ) : isHost ? (
+            <>
+              <Col flex="1" style={{ minWidth: 0 }}>
+                <Input
+                  value={displayNameInput}
+                  onChange={(e) => setDisplayNameInput(e.target.value)}
+                  onBlur={() => updateDisplayName(displayNameInput)}
+                  onPressEnter={() => updateDisplayName(displayNameInput)}
+                  placeholder="Seu nome (ao enviar DM)"
+                />
+              </Col>
+              <Col flex="none">
+                <Button
+                  onClick={() => {
+                    navigator.clipboard.writeText(ID)
+                    messageApi?.info(`ID copiado para área de transferência: ${ID}`)
+                  }}
+                >
+                  ID: {ID}
+                </Button>
+              </Col>
+            </>
+          ) : (
+            <>
+              <Col flex="1" style={{ minWidth: 0 }}>
+                <Input
+                  value={displayNameInput}
+                  onChange={(e) => setDisplayNameInput(e.target.value)}
+                  onBlur={() => updateDisplayName(displayNameInput)}
+                  onPressEnter={() => updateDisplayName(displayNameInput)}
+                  placeholder="Seu nome"
+                />
+              </Col>
+              <Col flex="none">
+                <Button onClick={() => disconnect()}>Desconectar</Button>
+              </Col>
+            </>
+          )}
+        </Row>
+    )
 }

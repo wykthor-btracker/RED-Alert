@@ -34,6 +34,8 @@ export interface MessageBusContextValue {
   host: () => void;
   node: (ID: string) => void;
   disconnect: () => void;
+  /** Update display name (client sends to host; host updates own senderData). */
+  updateDisplayName: (name: string) => void;
   connected: boolean;
   connections: DataConnection[];
   messageApi: MessageInstance | null;
@@ -57,6 +59,7 @@ const defaultContextValue: MessageBusContextValue = {
   host: () => {},
   node: () => {},
   disconnect: () => {},
+  updateDisplayName: () => {},
   connected: false,
   connections: [],
   messageApi: null,

@@ -26,7 +26,7 @@ export function AnimatedList(props: {
                     <Typography.Text strong>
                       {item.metadata.sender.name}
                       {isDirect && targetName && (
-                        <Tag color="blue" style={{ marginLeft: 6 }}>DM para {targetName}</Tag>
+                        <Tag color="blue" style={{ marginLeft: 6 }}>Mensagem para você</Tag>
                       )}
                     </Typography.Text>
                   </div>
