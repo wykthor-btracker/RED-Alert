@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { LogData, LogDataMetadataSenderData, MessageBusContext } from "../contexts/MessageBusContext";
 import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
+
+const CONNECTION_TIMEOUT_MS = 15000;
 
 export function MessageBus (props: any) {
     const [messageLog, setMessageLog]   = useState<Array<LogData>>([
@@ -17,7 +19,7 @@ export function MessageBus (props: any) {
       }}
     ])
     const [messageApi, contextHolder]   = message.useMessage();
-    const [conn, setConn]               = useState<DataConnection | null>()
+    const [conn, setConn]               = useState<DataConnection | null>(null)
     const [ID, setID]                   = useState<string>("")
     const [isHost, setIsHost]           = useState(false)
     const [connections, setConnections] = useState<Array<DataConnection>>([])
@@ -27,7 +29,24 @@ export function MessageBus (props: any) {
       avatar: `https://api.dicebear.com/9.x/rings/svg?seed=${randomKey}`,
         name: `Player ${randomKey}`,
     })
-  
+
+    const peerRef = useRef<Peer | null>(null);
+    const connectionsRef = useRef<Array<DataConnection>>([]);
+    const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    connectionsRef.current = connections;
+
+    useEffect(() => {
+      return () => {
+        connectionTimeoutRef.current && clearTimeout(connectionTimeoutRef.current);
+        peerRef.current?.destroy();
+        peerRef.current = null;
+        setConn(null);
+        setConnections([]);
+        setConnected(false);
+      };
+    }, []);
+
     useEffect(()=>{
       if(messageLog.length) {
         const lastMessage = messageLog[messageLog.length-1]
@@ -41,9 +60,16 @@ export function MessageBus (props: any) {
         }
       }
     }, [messageLog])
-  
+
+    function clearConnectionTimeout() {
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
+    }
+
     function send (data: LogData) {
-      if(isHost && connections) {
+      if(isHost && connections.length) {
         broadcast(data)
       }
       else if(conn) {
@@ -52,34 +78,41 @@ export function MessageBus (props: any) {
         messageApi.error("Não estamos conectados em ninguém, parsa!")
       }
     }
-  
+
     function host () {
-  
+      peerRef.current?.destroy()
+      peerRef.current = null
+      setConnections([])
+
       setIsHost(true)
-      
+
       setSenderData({
         avatar: `https://api.dicebear.com/9.x/rings/svg?seed=maestro`,
         name: "M.A.E.S.T.R.O",
       })
-  
-      const conn = new Peer()
+
+      const peer = new Peer()
+      peerRef.current = peer;
       messageApi.open({
         type: 'loading',
         content: 'Gerando ID...',
         duration: 0,
       });
-      conn.on("disconnected", (id) => {
+      peer.on("disconnected", () => {
         setConnected(false)
       })
-      conn.on("open", (id) => {
+      peer.on("error", (err) => {
+        messageApi.destroy()
+        messageApi.error(err?.message ?? "Erro na conexão como host.")
+        setConnected(false)
+      })
+      peer.on("open", (id) => {
         setConnected(true)
         setID(id)
         messageApi.destroy()
-        conn.on("connection", (connPeer)=>{
-          const oldList = connections
-          oldList.push(connPeer)
-          setConnections([...oldList])
-          
+        peer.on("connection", (connPeer)=>{
+          setConnections(prev => [...prev, connPeer])
+
           const messageReport = {
             content: {message: "New connection!"},
             metadata: {
@@ -87,72 +120,119 @@ export function MessageBus (props: any) {
               code: 1,
               data: {},
               sender: {
-                avatar: connPeer.metadata.avatar,
-                name: connPeer.metadata.label,
+                avatar: connPeer.metadata?.avatar,
+                name: connPeer.metadata?.label,
               }
             }
           } as LogData
-          const oldMessageLog = messageLog
-          oldMessageLog.push(messageReport)
-          setMessageLog([...oldMessageLog])
-  
+          setMessageLog(prev => [...prev, messageReport])
+
           connPeer.on("data", (data) => {
             broadcast(data as LogData);
+          })
+          connPeer.on("close", () => {
+            setConnections(prev => prev.filter(c => c !== connPeer));
+          })
+          connPeer.on("error", () => {
+            setConnections(prev => prev.filter(c => c !== connPeer));
           })
         })
       })
     }
-  
+
     function node (connID: string) {
-      messageApi.loading("Conectando ao host...")
+      messageApi.loading("Conectando ao host...", 0)
+      peerRef.current?.destroy()
+      peerRef.current = null
       if(conn) {
         conn.close()
+        setConn(null)
       }
+      clearConnectionTimeout();
       const peer = new Peer()
-      peer.on("disconnected", (id) => {
+      peerRef.current = peer;
+      peer.on("disconnected", () => {
         setConnected(false)
       })
-      peer.on("open", (id) => {
+      peer.on("error", (err) => {
+        clearConnectionTimeout()
         messageApi.destroy()
-        var conn = peer.connect(connID, 
-          {metadata: 
+        messageApi.error(err?.message ?? "Erro ao conectar.")
+        setConnected(false)
+      })
+      peer.on("open", () => {
+        messageApi.destroy()
+        const dataConn = peer.connect(connID,
+          {metadata:
             {
               label: senderData?.name,
               avatar: senderData?.avatar
-        }})
-        conn.on('open', function() {    
-            setConn(conn)
-            setConnected(true)
-            conn.on("data", (data: any) => {
-              var newData = messageLog
-              newData.push(data as LogData)
-              setMessageLog([...newData])
-            })
-          });
+            }});
+
+        connectionTimeoutRef.current = setTimeout(() => {
+          if (!dataConn.open) {
+            clearConnectionTimeout()
+            messageApi.destroy()
+            messageApi.error("Conexão expirou. O host pode estar offline.")
+            setConn(null)
+            setConnected(false)
+            peer.destroy()
+            peerRef.current = null
+          }
+        }, CONNECTION_TIMEOUT_MS);
+
+        dataConn.on("error", () => {
+          clearConnectionTimeout()
+          messageApi.destroy()
+          setConn(null)
+          setConnected(false)
+        })
+        dataConn.on("close", () => {
+          clearConnectionTimeout()
+          setConn(null)
+          setConnected(false)
+        })
+        dataConn.on('open', () => {
+          if (peerRef.current !== peer) return
+          clearConnectionTimeout()
+          setConn(dataConn)
+          setConnected(true)
+          dataConn.on("data", (data: any) => {
+            setMessageLog(prev => [...prev, data as LogData])
+          })
+        });
       })
     }
 
     function disconnect () {
+      clearConnectionTimeout()
       conn?.close()
+      peerRef.current?.destroy()
+      peerRef.current = null
+      setConn(null)
+      setConnections([])
+      setConnected(false)
+      setIsHost(false)
+      setID("")
     }
+
     function broadcast(data: LogData) {
-      var newData = messageLog;
-      newData.push(data);
-      setMessageLog([...newData]);
-      for (let connIndex = 0; connIndex < connections.length; connIndex++) {
-  
-        const element = connections[connIndex];
-        console.log(element);
-        element.send(data);
+      setMessageLog(prev => [...prev, data]);
+      const currentConnections = connectionsRef.current;
+      for (let connIndex = 0; connIndex < currentConnections.length; connIndex++) {
+        const element = currentConnections[connIndex];
+        if (element.open) {
+          element.send(data);
+        }
       }
     }
-  
+
     function sendToLog(data: LogData) {
-      if(conn) {
+      if(conn?.open) {
         conn.send(data)
       }
-  
     }
+
     return <>
       <MessageBusContext.Provider value={{
         messageLog,
@@ -169,7 +249,7 @@ export function MessageBus (props: any) {
         isHost
       }}>
         {contextHolder}
-        {props.children}    
+        {props.children}
       </MessageBusContext.Provider>
     </>
   }

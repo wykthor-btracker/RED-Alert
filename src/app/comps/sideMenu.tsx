@@ -1,9 +1,9 @@
 import { Button, Col, Input, Row } from "antd"
-import { useContext, useState } from "react"
+import React, { useContext, useState } from "react"
 import { MessageBusContext } from "../contexts/MessageBusContext"
 
 export default function SideMenu (props: any) {
-    const {messageApi, ID, host, node, isHost, connected} = useContext(MessageBusContext)
+    const {messageApi, ID, host, node, isHost, connected, disconnect} = useContext(MessageBusContext)
     const [connectionInput, setConnectionInput] = useState("")
     return <>
         {!connected ? 
@@ -26,7 +26,7 @@ export default function SideMenu (props: any) {
                       }}>ID: {ID}
                   </Button> 
                 : <Button
-                    onClick={()=>{}}>Desconectar</Button>}
+                    onClick={()=>{ disconnect() }}>Desconectar</Button>}
                 </Col> 
               </Row>
         }
