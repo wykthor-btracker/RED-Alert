@@ -19,6 +19,14 @@ export interface LogData {
   metadata: LogDataMetadata
 }
 
+/** Grid dimensions and per-cell combatant id (from iniciativa). Synced from host to all clients. */
+export interface MapGridState {
+  rows: number;
+  cols: number;
+  /** cells[row][col] = initiative combatant id or null when battle is underway */
+  cells: (string | null)[][];
+}
+
 export interface MessageBusContextValue {
   messageLog: LogData[];
   send: (data: LogData) => void;
@@ -43,6 +51,10 @@ export interface MessageBusContextValue {
   ID: string;
   senderData: LogDataMetadataSenderData | null;
   isHost: boolean;
+  /** Customizable map grid; host sets dimensions, all nodes receive same state. */
+  mapGrid: MapGridState | null;
+  /** Host only: set grid dimensions/cells and broadcast to all connected nodes. */
+  setMapGrid: (state: MapGridState | null) => void;
 }
 
 const defaultContextValue: MessageBusContextValue = {
@@ -67,6 +79,8 @@ const defaultContextValue: MessageBusContextValue = {
   ID: "",
   senderData: null,
   isHost: false,
+  mapGrid: null,
+  setMapGrid: () => {},
 };
 
 export const MessageBusContext = createContext<MessageBusContextValue>(defaultContextValue);

@@ -8,6 +8,7 @@ import SideMenu from "./comps/sideMenu";
 import { LogData, LogDataMetadataSenderData } from "./contexts/MessageBusContext";
 import { ActivityLog } from "./pages/ActivityLog";
 import InitiativeTracker from "./pages/InitiativeTracker";
+import MapGrid from "./pages/MapGrid";
 
 export default function Home() {
   let path
@@ -38,7 +39,7 @@ export default function Home() {
     {
       key: "3",
       label: "Mapa",
-      children: <></>,
+      children: <MapGrid/>,
       icon: <GlobalOutlined/>
     }
   ]

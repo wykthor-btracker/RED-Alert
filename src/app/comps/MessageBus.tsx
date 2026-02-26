@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { LogData, LogDataMetadataSenderData, MessageBusContext } from "../contexts/MessageBusContext";
+import { LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
 import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
 
@@ -7,6 +7,7 @@ const CONNECTION_TIMEOUT_MS = 15000;
 const KEEPALIVE_INTERVAL_MS = 25_000;
 const KEEPALIVE_TYPE = "keepalive";
 const SYNC_TYPE = "sync";
+const MAP_GRID_SYNC_TYPE = "mapGridSync";
 
 function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -39,15 +40,18 @@ export function MessageBus (props: any) {
       avatar: `https://api.dicebear.com/9.x/rings/svg?seed=${randomKey}`,
         name: `Player ${randomKey}`,
     })
+    const [mapGrid, setMapGridState] = useState<MapGridState | null>(null)
 
     const peerRef = useRef<Peer | null>(null);
     const connectionsRef = useRef<Array<DataConnection>>([]);
     const connectionDisplayNamesRef = useRef<Record<string, string>>({});
     const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const mapGridRef = useRef<MapGridState | null>(null);
 
     connectionsRef.current = connections;
     connectionDisplayNamesRef.current = connectionDisplayNames;
+    mapGridRef.current = mapGrid;
 
     function clearKeepaliveInterval() {
       if (keepaliveIntervalRef.current) {
@@ -258,11 +262,17 @@ export function MessageBus (props: any) {
               if (c.open) c.send({ metadata: { type: "peerList", code: 0, sender: senderData, data: { peers: labels } }, content: {} });
             });
           }
-          setTimeout(() => sendPeerListToAll([...connectionsRef.current, connPeer]), 0);
+          setTimeout(() => {
+            sendPeerListToAll([...connectionsRef.current, connPeer]);
+            const grid = mapGridRef.current;
+            if (grid && connPeer.open)
+              connPeer.send({ metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData, data: grid }, content: {} });
+          }, 0);
 
           connPeer.on("data", (data) => {
             const payload = data as LogData;
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
+            if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) return;
             if (payload.metadata?.type === "displayName") {
               const name = payload.metadata?.data?.name as string | undefined;
               if (name != null) {
@@ -393,6 +403,13 @@ export function MessageBus (props: any) {
               setPeerList(payload.metadata?.data?.peers ?? []);
               return;
             }
+            if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) {
+              const grid = payload.metadata?.data as MapGridState | null | undefined;
+              if (grid && typeof grid.rows === "number" && typeof grid.cols === "number" && Array.isArray(grid.cells))
+                setMapGridState(grid);
+              else if (grid === null) setMapGridState(null);
+              return;
+            }
             setMessageLog((prev) => [...prev, { ...payload, id: payload.id ?? nextId() }]);
           });
           clearKeepaliveInterval()
@@ -471,6 +488,19 @@ export function MessageBus (props: any) {
       }
     }
 
+    function setMapGrid(state: MapGridState | null) {
+      if (!isHost) return;
+      setMapGridState(state);
+      mapGridRef.current = state;
+      const payload = {
+        metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData!, data: state },
+        content: {},
+      } as LogData;
+      connectionsRef.current.forEach((c) => {
+        if (c.open) c.send(payload);
+      });
+    }
+
     return <>
       <MessageBusContext.Provider value={{
         messageLog,
@@ -494,6 +524,8 @@ export function MessageBus (props: any) {
         senderData,
         ID,
         isHost,
+        mapGrid,
+        setMapGrid,
       }}>
         {contextHolder}
         {props.children}
