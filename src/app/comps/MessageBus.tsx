@@ -16,6 +16,39 @@ const USER_DATA_SYNC_TYPE = "userDataSync";
 const USER_DATA_UPDATE_TYPE = "userDataUpdate";
 const USER_SHEETS_SYNC_TYPE = "userSheetsSync";
 
+const HOST_PERSIST_STORAGE_KEY = "soundboard:hostPersist";
+
+type HostPersistState = {
+  savedCharacters: Array<{ ownerName: string; peerId?: string; data: CharacterData }>;
+  messageLog: LogData[];
+  mapGrid: MapGridState | null;
+  initiativeCombatants: InitiativeCombatant[];
+  userData: CharacterData | null;
+  currentEditedOwnerName: string | null;
+};
+
+function loadHostPersist(): Partial<HostPersistState> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(HOST_PERSIST_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as Partial<HostPersistState>;
+  } catch {
+    return null;
+  }
+}
+
+function saveHostPersist(state: HostPersistState) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(HOST_PERSIST_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore quota / privacy errors
+  }
+}
+
 function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -108,6 +141,19 @@ export function MessageBus (props: any) {
         }
       }
     }, [messageLog])
+
+    // Persist host state to localStorage whenever it changes (so same browser can restore when hosting again)
+    useEffect(() => {
+      if (!isHost) return;
+      saveHostPersist({
+        savedCharacters,
+        messageLog,
+        mapGrid,
+        initiativeCombatants,
+        userData,
+        currentEditedOwnerName,
+      });
+    }, [isHost, savedCharacters, messageLog, mapGrid, initiativeCombatants, userData, currentEditedOwnerName]);
 
     function clearConnectionTimeout() {
       if (connectionTimeoutRef.current) {
@@ -238,6 +284,41 @@ export function MessageBus (props: any) {
         avatar: `https://api.dicebear.com/9.x/rings/svg?seed=maestro`,
         name: "M.A.E.S.T.R.O",
       })
+
+      // Restore last host state from localStorage (same browser hosting again)
+      const restored = loadHostPersist();
+      if (restored) {
+        if (Array.isArray(restored.savedCharacters) && restored.savedCharacters.length > 0) {
+          setSavedCharactersState(
+            restored.savedCharacters.filter(
+              (s) => s && typeof s === "object" && typeof s.ownerName === "string" && s.data && typeof (s.data as CharacterData).stats === "object"
+            )
+          );
+        }
+        if (Array.isArray(restored.messageLog) && restored.messageLog.length > 0) {
+          const withIds = restored.messageLog.map((m) => ({
+            ...m,
+            id: (m as LogData).id ?? nextId(),
+          })) as LogData[];
+          setMessageLog(withIds);
+        }
+        if (restored.mapGrid && typeof restored.mapGrid === "object" && typeof restored.mapGrid.rows === "number" && typeof restored.mapGrid.cols === "number" && Array.isArray(restored.mapGrid.cells)) {
+          setMapGridState(restored.mapGrid);
+        }
+        if (Array.isArray(restored.initiativeCombatants) && restored.initiativeCombatants.length > 0) {
+          setInitiativeCombatantsState(
+            restored.initiativeCombatants.filter(
+              (c) => c && typeof c === "object" && typeof c.id === "string" && typeof c.name === "string"
+            )
+          );
+        }
+        if (restored.userData && typeof restored.userData === "object" && typeof (restored.userData as CharacterData).stats === "object") {
+          setUserDataState(restored.userData as CharacterData);
+        }
+        if (restored.currentEditedOwnerName != null && typeof restored.currentEditedOwnerName === "string") {
+          setCurrentEditedOwnerNameState(restored.currentEditedOwnerName);
+        }
+      }
 
       const peer = new Peer()
       peerRef.current = peer;
