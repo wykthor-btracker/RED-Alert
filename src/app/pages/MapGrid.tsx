@@ -1,20 +1,133 @@
 'use client';
 
-import { Button, Checkbox, Col, Dropdown, InputNumber, MenuProps, message, Modal, Row, Switch } from "antd";
-import { useContext, useMemo, useState } from "react";
-import { LogData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
+import {
+  ApiOutlined,
+  ColumnHeightOutlined,
+  DisconnectOutlined,
+  EyeOutlined,
+  FireOutlined,
+  HeartOutlined,
+  MedicineBoxOutlined,
+  MessageOutlined,
+  ScissorOutlined,
+  SmileOutlined,
+  SoundOutlined,
+  SwapOutlined,
+  ThunderboltOutlined,
+  WarningOutlined,
+} from "@ant-design/icons";
+import { Button, Checkbox, Col, Dropdown, InputNumber, MenuProps, message, Modal, Row, Switch, Tooltip } from "antd";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { InitiativeCombatant, LogData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
 
 const DRAG_TYPE_INITIATIVE = "application/x-initiative-combatant";
 const DRAG_TYPE_MAP_CELL = "application/x-map-cell";
 
-/** Default scale: 1 cell = 1m. Used for distance display (Mirar) and for AoE templates. */
-export const CELL_SCALE_METERS = 1;
+/** Map scale: 1 cell = 2m (each cell is a 2×2m space). Used for distance display (Mirar) and AoE. */
+export const CELL_SCALE_METERS = 2;
 
-/** CPR grenade: 10m×10m (book: 5×5 squares at 2m). With 1m/cell, radius 5 → 11×11 cells. */
-const GRENADE_RADIUS_CELLS = 5;
+/** CPR grenade: 10m×10m (book: 5×5 squares at 2m). With 2m/cell, radius 2 cells → 5×5 cells = 10m. */
+const GRENADE_RADIUS_CELLS = 2;
 
-/** CPR shotgun shells: 6m spread "covering 3 squares" (2m squares) = 6 cells in a cone in front of shooter. Not implemented yet. */
-const SHOTGUN_RANGE_CELLS = 6;
+/** CPR shotgun: 3×3 square in front of shooter (3 cells deep, 3 cells wide). */
+const SHOTGUN_RANGE_CELLS = 3;
+
+/** 8 directions: E, SE, S, SW, W, NW, N, NE. Each is [dr, dc]. */
+const SHOTGUN_DIRECTIONS: [number, number][] = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]];
+
+/** Single critical injury; category for Head vs Body matrix. */
+export type CPRCriticalInjury = { id: string; name: string; description: string; icon: ReactNode; category: "head" | "body" };
+
+/** Cyberpunk RED critical injuries (Ranged 1d10 + Melee 1d10 + Head/Body refs). id used for combatant.criticalInjuries[]. */
+export const CPR_CRITICAL_INJURIES: CPRCriticalInjury[] = [
+  { id: "broken-ribs", name: "Costelas partidas", description: "-2 em MOVE, DEX e testes de skill baseados em CORPO.", icon: <ThunderboltOutlined />, category: "body" },
+  { id: "collapsed-lung", name: "Pulmão colapsado", description: "-2 em todas as ações; teste de morte todo turno até tratar.", icon: <HeartOutlined />, category: "body" },
+  { id: "broken-arm", name: "Braço partido", description: "Não pode usar armas duas mãos; -4 em ataques corpo a corpo e à distância.", icon: <ApiOutlined />, category: "body" },
+  { id: "crushed-fingers", name: "Dedos esmagados", description: "Não pode usar essa mão; -4 em ações que a usem.", icon: <ScissorOutlined />, category: "body" },
+  { id: "gouged-eye", name: "Olho perfurado", description: "-4 em ataques à distância; -2 em Percepção.", icon: <EyeOutlined />, category: "head" },
+  { id: "broken-leg", name: "Perna partida", description: "MOVE pela metade; não pode esquivar.", icon: <DisconnectOutlined />, category: "body" },
+  { id: "internal-bleeding", name: "Hemorragia interna", description: "2 de sangramento por turno; cirurgia em 1h ou morte.", icon: <MedicineBoxOutlined />, category: "body" },
+  { id: "spinal-injury", name: "Lesão na coluna", description: "-4 em todas as ações; teste de morte todo turno.", icon: <ColumnHeightOutlined />, category: "body" },
+  { id: "torn-muscle", name: "Músculo rasgado", description: "-2 em todas as ações físicas e em Iniciativa.", icon: <FireOutlined />, category: "body" },
+  { id: "whiplash", name: "Whiplash", description: "-2 em Iniciativa; -4 em Brawling e Melee Weapon.", icon: <SwapOutlined />, category: "head" },
+  { id: "cracked-skull", name: "Crânio rachado", description: "Headshots x3 em vez de x2; +1 penalidade teste de morte.", icon: <WarningOutlined />, category: "head" },
+  { id: "broken-jaw", name: "Mandíbula partida", description: "Não pode falar; -4 em ações de fala.", icon: <MessageOutlined />, category: "head" },
+  { id: "dislocated-shoulder", name: "Ombro deslocado", description: "Não pode usar esse braço; -4 em melee/ranged.", icon: <ApiOutlined />, category: "body" },
+  { id: "broken-hand", name: "Mão partida", description: "Não pode usar essa mão; -4 em ações que a usem.", icon: <ScissorOutlined />, category: "body" },
+  { id: "internal-injury", name: "Lesão interna", description: "2 de sangramento por turno; cirurgia em 1h ou morte.", icon: <MedicineBoxOutlined />, category: "body" },
+  { id: "damaged-spine", name: "Coluna danificada", description: "-4 em todas as ações; teste de morte todo turno.", icon: <ColumnHeightOutlined />, category: "body" },
+  { id: "knocked-out-teeth", name: "Dentes arrancados", description: "-2 em testes de Cool; não pode usar Charismatic Impact.", icon: <SmileOutlined />, category: "head" },
+  { id: "lost-eye", name: "Olho perdido", description: "-4 em ataques à distância e Percepção (visão); +1 penalidade teste de morte.", icon: <EyeOutlined />, category: "head" },
+  { id: "brain-injury", name: "Lesão cerebral", description: "-2 em todas as ações; +1 penalidade teste de morte.", icon: <WarningOutlined />, category: "head" },
+  { id: "damaged-ear", name: "Ouvido danificado", description: "Não pode mover no turno seguinte após mover 4m+; -2 Percepção (audição).", icon: <SoundOutlined />, category: "head" },
+];
+
+const CPR_HEAD_INJURIES = CPR_CRITICAL_INJURIES.filter((i) => i.category === "head");
+const CPR_BODY_INJURIES = CPR_CRITICAL_INJURIES.filter((i) => i.category === "body");
+
+/** Cells in a 3×3 square in front of (sr, sc). Cardinal: near edge centered on direction; diagonal: near corner is the cell one step along the diagonal. */
+function getCellsInCone(
+  sr: number,
+  sc: number,
+  directionIndex: number,
+  _range: number,
+  rows: number,
+  cols: number
+): { r: number; c: number }[] {
+  const out: { r: number; c: number }[] = [];
+  const [dr, dc] = SHOTGUN_DIRECTIONS[directionIndex % 8];
+  const isDiagonal = directionIndex % 2 === 1;
+
+  if (isDiagonal) {
+    // 3×3 square with corner (sr+dr, sc+dc) closest to shooter; square extends along diagonal and perpendicular
+    for (let i = 1; i <= 3; i++) {
+      for (let j = 1; j <= 3; j++) {
+        const r = sr + dr * i;
+        const c = sc + dc * j;
+        if (r >= 0 && r < rows && c >= 0 && c < cols) out.push({ r, c });
+      }
+    }
+    return out;
+  }
+
+  // Cardinal: 3 steps in direction, 3 cells wide perpendicular (edge of square toward shooter)
+  const perpR = -dc;
+  const perpC = dr;
+  for (let step = 1; step <= 3; step++) {
+    for (const offset of [-1, 0, 1]) {
+      const r = sr + dr * step + perpR * offset;
+      const c = sc + dc * step + perpC * offset;
+      if (r >= 0 && r < rows && c >= 0 && c < cols) out.push({ r, c });
+    }
+  }
+  return out;
+}
+
+/** 3×3 square cells that have line of sight from shooter; damage stops at first cover. */
+function getShotgunAffectedCells(
+  shooterR: number,
+  shooterC: number,
+  directionIndex: number,
+  range: number,
+  rows: number,
+  cols: number,
+  coverCells: Record<string, unknown>
+): { r: number; c: number }[] {
+  const square = getCellsInCone(shooterR, shooterC, directionIndex, range, rows, cols);
+  return square.filter(({ r, c }) => hasLineOfSight(shooterR, shooterC, r, c, coverCells));
+}
+
+/** Direction index 0..7 from shooter to target cell (Bresenham line → octant). */
+function getDirectionFromLine(shooterR: number, shooterC: number, targetR: number, targetC: number): number | null {
+  const dr = targetR - shooterR;
+  const dc = targetC - shooterC;
+  if (dr === 0 && dc === 0) return null;
+  let angle = Math.atan2(dr, dc);
+  if (angle < 0) angle += 2 * Math.PI;
+  return Math.round(angle / (Math.PI / 4)) % 8;
+}
 
 /** Cells in a square blast centered at (centerR, centerC) with given radius, clamped to grid [0,rows)x[0,cols). */
 function getCellsInBlast(
@@ -97,8 +210,14 @@ function hasLineOfSight(
   return true;
 }
 
-/** Floating bars shown on hover: health (red), body SP (yellow), head SP (orange). Responsive to cell size. */
+/** Floating bars and critical-injury matrix shown when combatant cell (or this panel) is hovered. Panel is hoverable so the matrix stays visible. Rendered in a portal when cellEl is set so it is not clipped by ancestor overflow. */
 function CombatantHoverBars(props: {
+  cellEl: HTMLDivElement | null;
+  cellR: number;
+  cellC: number;
+  onPanelEnter: () => void;
+  onPanelLeave: () => void;
+  combatantId: string;
   currentHealth: number;
   maxHealth: number;
   stoppingPower: number;
@@ -106,20 +225,43 @@ function CombatantHoverBars(props: {
   stoppingPowerHead: number;
   stoppingPowerHeadMax: number;
   cellSize: number;
+  criticalInjuries: string[];
+  onToggleCriticalInjury: (injuryId: string) => void;
+  isHost: boolean;
 }) {
+  const [position, setPosition] = useState<{ left: number; bottom: number } | null>(null);
+  useEffect(() => {
+    if (!props.cellEl) {
+      setPosition(null);
+      return;
+    }
+    const update = () => {
+      const rect = props.cellEl!.getBoundingClientRect();
+      setPosition({
+        left: rect.left + rect.width / 2,
+        bottom: window.innerHeight - rect.top,
+      });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [props.cellEl]);
   const maxH = Math.max(1, props.maxHealth);
   const maxSP = Math.max(1, props.stoppingPowerMax);
   const maxSPHead = Math.max(1, props.stoppingPowerHeadMax);
   const hp = Math.min(1, Math.max(0, props.currentHealth / maxH));
   const bodySP = Math.min(1, Math.max(0, props.stoppingPower / maxSP));
   const headSP = Math.min(1, Math.max(0, props.stoppingPowerHead / maxSPHead));
-  // Responsive size: scale with cell, with sensible min/max for readability
   const scale = Math.max(1, Math.min(3, props.cellSize / 24));
-  const w = Math.round(Math.max(100, Math.min(220, props.cellSize * 2.2)));
   const barH = Math.max(6, Math.round(8 * scale));
   const gap = Math.max(4, Math.round(5 * scale));
   const padding = Math.max(6, Math.round(8 * scale));
   const fontSize = Math.max(10, Math.min(13, Math.round(11 * scale)));
+  const iconSize = Math.max(14, Math.min(20, Math.round(16 * scale)));
   const labelStyle: React.CSSProperties = {
     fontSize,
     color: "rgba(255,255,255,0.95)",
@@ -133,42 +275,210 @@ function CombatantHoverBars(props: {
     borderRadius: 3,
     overflow: "hidden",
   };
-  return (
+  const hasInjury = (id: string) => (props.criticalInjuries ?? []).includes(id);
+  const barGroupHeight = fontSize + 2 + barH;
+  const barsSectionHeight = 3 * barGroupHeight + 2 * gap;
+  const barBaseWidth = Math.round(Math.max(80, Math.min(140, props.cellSize * 1.5)));
+  const barSectionWidth = 2 * barBaseWidth;
+  const iconRowHeight = iconSize + 8;
+  const iconGap = 4;
+  const iconMatrixRows = 2;
+  const headCount = CPR_HEAD_INJURIES.length;
+  const bodyCount = CPR_BODY_INJURIES.length;
+  const headCols = Math.ceil(headCount / iconMatrixRows);
+  const bodyCols = Math.ceil(bodyCount / iconMatrixRows);
+  const headGridWidth = headCols * (iconSize + 8) + (headCols - 1) * iconGap;
+  const bodyGridWidth = bodyCols * (iconSize + 8) + (bodyCols - 1) * iconGap;
+  const iconGridHeight = iconMatrixRows * iconRowHeight + (iconMatrixRows - 1) * iconGap;
+  const labelBlockHeight = fontSize + 4;
+  const injuriesBlockGap = 8;
+  const rightColWidth = Math.max(headGridWidth, bodyGridWidth);
+  const rightSectionHeight = 2 * (labelBlockHeight + iconGridHeight) + injuriesBlockGap;
+  const sectionHeight = Math.max(barsSectionHeight, rightSectionHeight);
+  const stopPropagation = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+  const panelContent = (
     <div
+      role="presentation"
+      onClick={stopPropagation}
+      onMouseDown={stopPropagation}
+      onMouseEnter={props.onPanelEnter}
+      onMouseLeave={props.onPanelLeave}
       style={{
-        position: "absolute",
-        bottom: "100%",
-        left: "50%",
-        transform: "translateX(-50%)",
-        marginBottom: 6,
-        minWidth: w,
+        marginBottom: 4,
+        width: "max-content",
         padding: `${padding}px ${padding + 4}px`,
         background: "rgba(0,0,0,0.85)",
         borderRadius: 6,
         boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-        zIndex: 10,
-        pointerEvents: "none",
+        zIndex: 10001,
+        pointerEvents: "auto",
+        display: "flex",
+        flexDirection: "row",
+        gap: padding,
+        alignItems: "stretch",
+        boxSizing: "border-box",
+        overflow: "visible",
+        flexWrap: "nowrap",
       }}
     >
-      <div style={{ marginBottom: gap }}>
-        <div style={labelStyle}>HP</div>
-        <div style={barTrackStyle}>
-          <div style={{ width: `${hp * 100}%`, height: "100%", background: "#c0392b", borderRadius: 3 }} />
+      <div style={{ display: "flex", flexDirection: "column", width: barSectionWidth, flexShrink: 0, minWidth: 0, minHeight: sectionHeight }}>
+        <div style={{ marginBottom: gap }}>
+          <div style={labelStyle}>HP</div>
+          <div style={barTrackStyle}>
+            <div style={{ width: `${hp * 100}%`, height: "100%", background: "#c0392b", borderRadius: 3 }} />
+          </div>
+        </div>
+        <div style={{ marginBottom: gap }}>
+          <div style={labelStyle}>Corpo</div>
+          <div style={barTrackStyle}>
+            <div style={{ width: `${bodySP * 100}%`, height: "100%", background: "#f1c40f", borderRadius: 3 }} />
+          </div>
+        </div>
+        <div>
+          <div style={labelStyle}>Cabeça</div>
+          <div style={barTrackStyle}>
+            <div style={{ width: `${headSP * 100}%`, height: "100%", background: "#e67e22", borderRadius: 3 }} />
+          </div>
         </div>
       </div>
-      <div style={{ marginBottom: gap }}>
-        <div style={labelStyle}>Corpo</div>
-        <div style={barTrackStyle}>
-          <div style={{ width: `${bodySP * 100}%`, height: "100%", background: "#f1c40f", borderRadius: 3 }} />
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          minHeight: sectionHeight,
+          width: rightColWidth,
+          minWidth: rightColWidth,
+          flexShrink: 0,
+          gap: injuriesBlockGap,
+        }}
+      >
+        <div style={{ flexShrink: 0 }}>
+          <div style={{ ...labelStyle, marginBottom: 4 }}>Ferimentos críticos (cabeça)</div>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: iconGap,
+              alignContent: "flex-start",
+              height: iconGridHeight,
+              width: headGridWidth,
+            }}
+          >
+            {CPR_HEAD_INJURIES.map((inj) => {
+              const active = hasInjury(inj.id);
+              return (
+                <Tooltip key={inj.id} title={`${inj.name}: ${inj.description}`} overlayStyle={{ zIndex: 10002 }}>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (props.isHost) props.onToggleCriticalInjury(inj.id);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (props.isHost && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        props.onToggleCriticalInjury(inj.id);
+                      }
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: iconSize + 8,
+                      height: iconSize + 8,
+                      borderRadius: 4,
+                      background: active ? "rgba(192, 57, 43, 0.7)" : "rgba(255,255,255,0.15)",
+                      color: active ? "#fff" : "rgba(255,255,255,0.7)",
+                      fontSize: iconSize,
+                      cursor: props.isHost ? "pointer" : "default",
+                    }}
+                    aria-label={inj.name}
+                  >
+                    {inj.icon}
+                  </span>
+                </Tooltip>
+              );
+            })}
+          </div>
         </div>
-      </div>
-      <div>
-        <div style={labelStyle}>Cabeça</div>
-        <div style={barTrackStyle}>
-          <div style={{ width: `${headSP * 100}%`, height: "100%", background: "#e67e22", borderRadius: 3 }} />
+        <div style={{ flexShrink: 0 }}>
+          <div style={{ ...labelStyle, marginBottom: 4 }}>Ferimentos críticos (corpo)</div>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: iconGap,
+              alignContent: "flex-start",
+              height: iconGridHeight,
+              width: bodyGridWidth,
+            }}
+          >
+            {CPR_BODY_INJURIES.map((inj) => {
+              const active = hasInjury(inj.id);
+              return (
+                <Tooltip key={inj.id} title={`${inj.name}: ${inj.description}`} overlayStyle={{ zIndex: 10002 }}>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (props.isHost) props.onToggleCriticalInjury(inj.id);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (props.isHost && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        props.onToggleCriticalInjury(inj.id);
+                      }
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: iconSize + 8,
+                      height: iconSize + 8,
+                      borderRadius: 4,
+                      background: active ? "rgba(192, 57, 43, 0.7)" : "rgba(255,255,255,0.15)",
+                      color: active ? "#fff" : "rgba(255,255,255,0.7)",
+                      fontSize: iconSize,
+                      cursor: props.isHost ? "pointer" : "default",
+                    }}
+                    aria-label={inj.name}
+                  >
+                    {inj.icon}
+                  </span>
+                </Tooltip>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
+  );
+  if (!position || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        left: position.left,
+        bottom: position.bottom,
+        width: "max-content",
+        transform: "translateX(-50%)",
+        zIndex: 10000,
+        pointerEvents: "none",
+        overflow: "visible",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      }}
+    >
+      <div style={{ pointerEvents: "auto", overflow: "visible" }}>{panelContent}</div>
+    </div>,
+    document.body
   );
 }
 
@@ -198,6 +508,31 @@ export default function MapGrid() {
   const [damageAmount, setDamageAmount] = useState<number>(1);
   /** Combatant cell being hovered (for floating bars) */
   const [hoveredCell, setHoveredCell] = useState<{ r: number; c: number } | null>(null);
+  /** When mouse is over the hover panel (panel is above cell, so we keep it visible) */
+  const [hoveredPanelCell, setHoveredPanelCell] = useState<{ r: number; c: number } | null>(null);
+  /** Map cell key `${r}-${c}` → DOM element (refs run on mount so we have elements for hovered cell) */
+  const cellRefsMap = useRef<Record<string, HTMLDivElement>>({});
+  /** DOM element of the hovered cell (synced from ref map so panel can position via portal) */
+  const [hoveredCellEl, setHoveredCellEl] = useState<HTMLDivElement | null>(null);
+  const hoveredRC = hoveredCell ?? hoveredPanelCell;
+  useLayoutEffect(() => {
+    if (!hoveredRC) {
+      setHoveredCellEl(null);
+      return;
+    }
+    const key = `${hoveredRC.r}-${hoveredRC.c}`;
+    const syncEl = () => {
+      const el = cellRefsMap.current[key] ?? null;
+      setHoveredCellEl(el);
+    };
+    syncEl();
+    if (!cellRefsMap.current[key]) {
+      const id = requestAnimationFrame(() => {
+        syncEl();
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [hoveredRC?.r, hoveredRC?.c]);
   /** Mirar (line of sight): when true, first click = origin, second = target */
   const [mirarMode, setMirarMode] = useState(false);
   const [mirarFrom, setMirarFrom] = useState<{ r: number; c: number } | null>(null);
@@ -210,6 +545,14 @@ export default function MapGrid() {
   const [granadaDamageModalOpen, setGranadaDamageModalOpen] = useState(false);
   const [granadaDamageAmount, setGranadaDamageAmount] = useState(6);
   const [granadaDamageCover, setGranadaDamageCover] = useState(true);
+
+  /** Shotgun: shooter set from menu; direction from hover (Bresenham line); click cell to open damage modal. */
+  const [shotgunShooter, setShotgunShooter] = useState<{ r: number; c: number } | null>(null);
+  const [shotgunHoveredCell, setShotgunHoveredCell] = useState<{ r: number; c: number } | null>(null);
+  const [shotgunDirection, setShotgunDirection] = useState<number | null>(null);
+  const [shotgunModalOpen, setShotgunModalOpen] = useState(false);
+  const [shotgunDamageAmount, setShotgunDamageAmount] = useState(4);
+  const [shotgunDamageCover, setShotgunDamageCover] = useState(true);
 
   const handleCreateGrid = () => {
     const rows = Math.max(1, Math.min(24, Math.round(rowsInput)));
@@ -349,6 +692,21 @@ export default function MapGrid() {
     setDamageAmount(1);
   };
 
+  const toggleCriticalInjury = (combatantId: string, injuryId: string) => {
+    setInitiativeCombatants((prev) =>
+      prev.map((c) =>
+        c.id === combatantId
+          ? {
+              ...c,
+              criticalInjuries: (c.criticalInjuries ?? []).includes(injuryId)
+                ? (c.criticalInjuries ?? []).filter((x) => x !== injuryId)
+                : [...(c.criticalInjuries ?? []), injuryId],
+            }
+          : c
+      )
+    );
+  };
+
   const handleMirarClick = (r: number, c: number) => {
     if (!mirarMode) return;
     if (mirarFrom === null) {
@@ -413,6 +771,26 @@ export default function MapGrid() {
     return new Set(blastCells.map(({ r, c }) => coverKey(r, c)));
   }, [granadaCenter, rows, cols]);
 
+  /** Effective direction: from modal when open, else from hover (Bresenham line shooter → hovered). */
+  const effectiveShotgunDirection = useMemo((): number | null => {
+    if (!shotgunShooter || rows <= 0 || cols <= 0) return null;
+    if (shotgunModalOpen && shotgunDirection != null) return shotgunDirection;
+    if (!shotgunHoveredCell || (shotgunHoveredCell.r === shotgunShooter.r && shotgunHoveredCell.c === shotgunShooter.c)) return null;
+    return getDirectionFromLine(shotgunShooter.r, shotgunShooter.c, shotgunHoveredCell.r, shotgunHoveredCell.c);
+  }, [shotgunShooter, shotgunHoveredCell, shotgunModalOpen, shotgunDirection, rows, cols]);
+
+  const shotgunAffectedCellSet = useMemo(() => {
+    if (!shotgunShooter || effectiveShotgunDirection == null || rows <= 0 || cols <= 0) return new Set<string>();
+    const affected = getShotgunAffectedCells(shotgunShooter.r, shotgunShooter.c, effectiveShotgunDirection, SHOTGUN_RANGE_CELLS, rows, cols, coverCells);
+    return new Set(affected.map(({ r, c }) => coverKey(r, c)));
+  }, [shotgunShooter, effectiveShotgunDirection, rows, cols, coverCells]);
+
+  const shotgunConePreviewCellSet = useMemo(() => {
+    if (!shotgunShooter || effectiveShotgunDirection == null || rows <= 0 || cols <= 0) return new Set<string>();
+    const cone = getCellsInCone(shotgunShooter.r, shotgunShooter.c, effectiveShotgunDirection, SHOTGUN_RANGE_CELLS, rows, cols);
+    return new Set(cone.map(({ r, c }) => coverKey(r, c)));
+  }, [shotgunShooter, effectiveShotgunDirection, rows, cols]);
+
   const handleGranadaCellClick = (r: number, c: number) => {
     if (!granadaMode || !isHost) return;
     setGranadaCenter({ r, c });
@@ -457,6 +835,46 @@ export default function MapGrid() {
     setGranadaDamageModalOpen(false);
     setGranadaDamageAmount(6);
     setGranadaDamageCover(true);
+  };
+
+  const applyShotgunDamage = () => {
+    if (!shotgunShooter || shotgunDirection == null || !mapGrid || !isHost) return;
+    const affected = getShotgunAffectedCells(shotgunShooter.r, shotgunShooter.c, shotgunDirection, SHOTGUN_RANGE_CELLS, rows, cols, coverCells);
+    const combatantIds = new Set<string>();
+    for (const { r, c } of affected) {
+      const id = cells[r]?.[c] ?? null;
+      if (id) combatantIds.add(id);
+    }
+    const amount = shotgunDamageAmount;
+    for (const id of combatantIds) {
+      applyDamage(id, amount);
+    }
+    if (shotgunDamageCover) {
+      let nextCover: Record<string, { health?: number }> = { ...coverCells };
+      for (const { r, c } of affected) {
+        const key = coverKey(r, c);
+        const info = nextCover[key];
+        if (info == null) continue;
+        const current = info.health ?? 0;
+        const newHealth = Math.max(0, current - amount);
+        if (newHealth <= 0) {
+          const { [key]: _, ...rest } = nextCover;
+          nextCover = rest;
+          broadcastUpdate(`Mapa: cobertura em (${r + 1},${c + 1}) destruída`);
+        } else {
+          nextCover = { ...nextCover, [key]: { health: newHealth } };
+          broadcastUpdate(`Mapa: cobertura em (${r + 1},${c + 1}) tomou ${amount} de dano (HP: ${newHealth})`);
+        }
+      }
+      setMapGrid({ ...mapGrid, coverCells: nextCover });
+    }
+    const n = combatantIds.size;
+    broadcastUpdate(`Shotgun: ${amount} de dano em área 3×3 (6m)${n > 0 ? ` (${n} alvo${n !== 1 ? "s" : ""})` : ""}${shotgunDamageCover ? "; dano em cobertura aplicado" : ""}.`);
+    setShotgunShooter(null);
+    setShotgunDirection(null);
+    setShotgunModalOpen(false);
+    setShotgunDamageAmount(4);
+    setShotgunDamageCover(true);
   };
 
   if (rows === 0 || cols === 0) {
@@ -638,6 +1056,12 @@ export default function MapGrid() {
             </Col>
           )}
           <Col flex="1" style={{ minWidth: 0 }}>
+        {shotgunShooter && !shotgunModalOpen && (
+          <div style={{ marginBottom: 8 }}>
+            <Button size="small" onClick={() => { setShotgunShooter(null); setShotgunHoveredCell(null); }}>Cancelar shotgun</Button>
+            <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Passe o mouse para apontar; clique numa célula para aplicar dano.</span>
+          </div>
+        )}
         <div
           style={{
             display: "grid",
@@ -649,6 +1073,7 @@ export default function MapGrid() {
             padding: 4,
             borderRadius: 4,
           }}
+          onMouseLeave={() => { if (shotgunShooter && !shotgunModalOpen) setShotgunHoveredCell(null); }}
         >
           {cells.map((row, r) =>
             row.map((combatantId, c) => {
@@ -662,6 +1087,8 @@ export default function MapGrid() {
                 ? truncateName(combatantName, Math.max(6, Math.floor(cellSize / 7)))
                 : null;
               const isInGranadaBlast = granadaBlastCellSet.has(key);
+              const isInShotgunCone = shotgunConePreviewCellSet.has(key);
+              const isInShotgunAffected = shotgunAffectedCellSet.has(key);
               const canDrop = isHost && !paintMode && !mirarMode && !granadaMode && !isCover;
               const showCellMenu = isHost && !paintMode && !mirarMode && !granadaMode && !!combatantId;
               const showCoverMenu = isHost && !paintMode && !mirarMode && !granadaMode && isCover;
@@ -671,17 +1098,23 @@ export default function MapGrid() {
                     { key: "dano", label: "Dano", onClick: () => setDamageModal({ type: "dano", combatantId: combatantId!, r, c }) },
                     { key: "armadura", label: "Dano à armadura", onClick: () => setDamageModal({ type: "armadura", combatantId: combatantId!, r, c }) },
                     { key: "armaduraHead", label: "Dano à armadura (cabeça)", onClick: () => setDamageModal({ type: "armaduraHead", combatantId: combatantId!, r, c }) },
+                    { key: "shotgun", label: "Shotgun", onClick: () => { setShotgunShooter({ r, c }); setShotgunHoveredCell(null); setShotgunDirection(null); setShotgunModalOpen(false); setCellMenu(null); } },
                   ]
                 : [];
               const coverMenuItems: MenuProps["items"] = showCoverMenu
                 ? [{ key: "dano", label: "Dano", onClick: () => { setCoverDamageModal({ r, c }); setCoverMenu(null); } }]
                 : [];
-              const isHovered = hoveredCell?.r === r && hoveredCell?.c === c;
+              const isHovered = (hoveredCell?.r === r && hoveredCell?.c === c) || (hoveredPanelCell?.r === r && hoveredPanelCell?.c === c);
               const isMirarOrigin = mirarFrom?.r === r && mirarFrom?.c === c;
               const isOnMirarLine = mirarFrom && mirarHoveredCell && mirarLineCellSet.has(coverKey(r, c));
+              const cellKey = `${r}-${c}`;
               const cellContent = (
                 <div
-                  key={`${r}-${c}`}
+                  key={cellKey}
+                  ref={(el) => {
+                    if (el) cellRefsMap.current[cellKey] = el;
+                    else delete cellRefsMap.current[cellKey];
+                  }}
                   role={isHost && (paintMode || mirarMode || granadaMode) ? "button" : undefined}
                   onClick={
                     isHost && paintMode
@@ -690,7 +1123,20 @@ export default function MapGrid() {
                         ? () => handleMirarClick(r, c)
                         : isHost && granadaMode
                           ? () => handleGranadaCellClick(r, c)
-                          : undefined
+                          : isHost && shotgunShooter
+                            ? () => {
+                                if (shotgunShooter.r === r && shotgunShooter.c === c) {
+                                  setShotgunShooter(null);
+                                  setShotgunHoveredCell(null);
+                                  return;
+                                }
+                                const dir = getDirectionFromLine(shotgunShooter.r, shotgunShooter.c, r, c);
+                                if (dir != null) {
+                                  setShotgunDirection(dir);
+                                  setShotgunModalOpen(true);
+                                }
+                              }
+                            : undefined
                   }
                   draggable={isHost && !paintMode && !granadaMode && !!combatantId}
                   onDragStart={
@@ -706,6 +1152,7 @@ export default function MapGrid() {
                   onMouseEnter={() => {
                     if (combatantId && combatant) setHoveredCell({ r, c });
                     if (mirarMode && mirarFrom) setMirarHoveredCell({ r, c });
+                    if (shotgunShooter && !shotgunModalOpen) setShotgunHoveredCell({ r, c });
                   }}
                   onMouseLeave={() => {
                     setHoveredCell(null);
@@ -721,17 +1168,25 @@ export default function MapGrid() {
                         ? "rgba(220, 100, 100, 0.5)"
                         : isInGranadaBlast
                           ? "rgba(255, 100, 50, 0.45)"
-                          : isCover
-                            ? "#8b7355"
-                            : "#fff",
+                          : isInShotgunAffected
+                            ? "rgba(255, 150, 50, 0.5)"
+                            : isInShotgunCone
+                              ? "rgba(255, 180, 80, 0.35)"
+                              : isCover
+                                ? "#8b7355"
+                                : "#fff",
                     border:
                       isMirarOrigin
                         ? "2px solid #1890ff"
                         : isInGranadaBlast
                           ? "1px solid #c0392b"
-                          : isCover
-                            ? "1px solid #5d4e3d"
-                            : "1px solid #bfbfbf",
+                          : isInShotgunAffected
+                            ? "1px solid #d35400"
+                            : isInShotgunCone
+                              ? "1px solid #e67e22"
+                              : isCover
+                                ? "1px solid #5d4e3d"
+                                : "1px solid #bfbfbf",
                     borderRadius: 2,
                     display: "flex",
                     flexDirection: "column",
@@ -799,6 +1254,12 @@ export default function MapGrid() {
                     <>
                       {isHovered && (
                         <CombatantHoverBars
+                          cellEl={hoveredCellEl}
+                          cellR={r}
+                          cellC={c}
+                          onPanelEnter={() => setHoveredPanelCell({ r, c })}
+                          onPanelLeave={() => setHoveredPanelCell(null)}
+                          combatantId={combatant.id}
                           currentHealth={combatant.currentHealth ?? 0}
                           maxHealth={combatant.maxHealth ?? 1}
                           stoppingPower={combatant.stoppingPower ?? 0}
@@ -806,6 +1267,9 @@ export default function MapGrid() {
                           stoppingPowerHead={combatant.stoppingPowerHead ?? combatant.stoppingPower ?? 0}
                           stoppingPowerHeadMax={combatant.stoppingPowerHeadMax ?? combatant.stoppingPowerMax ?? 1}
                           cellSize={cellSize}
+                          criticalInjuries={combatant.criticalInjuries ?? []}
+                          onToggleCriticalInjury={(injuryId) => toggleCriticalInjury(combatant.id, injuryId)}
+                          isHost={!!isHost}
                         />
                       )}
                       <span
@@ -946,6 +1410,50 @@ export default function MapGrid() {
             );
           })()}
         </div>
+      </Modal>
+      <Modal
+        title="Shotgun — área 3×3 / 6m (cobertura bloqueia)"
+        open={!!(shotgunModalOpen && shotgunShooter && shotgunDirection != null)}
+        onOk={applyShotgunDamage}
+        onCancel={() => { setShotgunModalOpen(false); setShotgunShooter(null); setShotgunDirection(null); }}
+        okText="Aplicar dano"
+        cancelText="Cancelar"
+      >
+        {shotgunShooter && shotgunDirection != null && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ marginBottom: 12 }}>
+              <span style={{ marginRight: 8 }}>Dano:</span>
+              <InputNumber
+                min={1}
+                value={shotgunDamageAmount}
+                onChange={(v) => setShotgunDamageAmount(Number(v) ?? 4)}
+              />
+            </div>
+            {(() => {
+              const affected = getShotgunAffectedCells(shotgunShooter.r, shotgunShooter.c, shotgunDirection, SHOTGUN_RANGE_CELLS, rows, cols, coverCells);
+              const ids = new Set<string>();
+              for (const { r, c } of affected) {
+                const id = cells[r]?.[c] ?? null;
+                if (id) ids.add(id);
+              }
+              const names = [...ids].map((id) => initiativeCombatants.find((c) => c.id === id)?.name ?? id.slice(-6));
+              return (
+                <>
+                  <div style={{ marginBottom: 8, fontSize: 12, color: "#666" }}>
+                    Alvos na área 3×3 (com LOS): {names.length ? names.join(", ") : "nenhum"}
+                  </div>
+                  <Checkbox
+                    checked={shotgunDamageCover}
+                    onChange={(e) => setShotgunDamageCover(e.target.checked)}
+                    style={{ marginTop: 8 }}
+                  >
+                    Aplicar dano em cobertura na área 3×3
+                  </Checkbox>
+                </>
+              );
+            })()}
+          </div>
+        )}
       </Modal>
     </Row>
   );

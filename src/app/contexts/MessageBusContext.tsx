@@ -40,6 +40,8 @@ export interface InitiativeCombatant {
   stoppingPowerHead?: number;
   stoppingPowerHeadMax?: number;
   initiative?: number;
+  /** IDs from CPR_CRITICAL_INJURIES (e.g. "broken-ribs") — synced with host. */
+  criticalInjuries?: string[];
 }
 
 export interface MessageBusContextValue {
