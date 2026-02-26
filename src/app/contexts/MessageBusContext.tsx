@@ -37,6 +37,8 @@ export interface InitiativeCombatant {
   maxHealth?: number;
   stoppingPower?: number;
   stoppingPowerMax?: number;
+  stoppingPowerHead?: number;
+  stoppingPowerHeadMax?: number;
   initiative?: number;
 }
 
@@ -70,8 +72,8 @@ export interface MessageBusContextValue {
   setMapGrid: (state: MapGridState | null) => void;
   /** Combatants from Iniciativa tab (id + name); host syncs to clients for map display. */
   initiativeCombatants: InitiativeCombatant[];
-  /** Host only: set initiative list and broadcast to clients. */
-  setInitiativeCombatants: (list: InitiativeCombatant[]) => void;
+  /** Host only: set initiative list and broadcast to clients. Accepts new list or updater (prev => next). */
+  setInitiativeCombatants: (listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) => void;
 }
 
 const defaultContextValue: MessageBusContextValue = {

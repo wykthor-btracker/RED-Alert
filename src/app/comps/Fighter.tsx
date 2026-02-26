@@ -22,15 +22,31 @@ export default function Fighter(props: any) {
     const currentRef = useRef<null | HTMLDivElement>(null);
     const [value, setValue] = useState("0")
     const [shield, setShield] = useState(0)
+    const [editingName, setEditingName] = useState(false)
+    const [nameEditValue, setNameEditValue] = useState("")
     const [stats, setStats] = useState({
       name: props.item.name,
       stoppingPower: props.item.stoppingPower,
-      stoppingPowerHead: props.item.stoppingPower,
-      stoppingPowerMax: props.item.stoppingPower,
-      stoppingPowerHeadMax: props.item.stoppingPower,
+      stoppingPowerHead: (props.item as { stoppingPowerHead?: number }).stoppingPowerHead ?? props.item.stoppingPower,
+      stoppingPowerMax: props.item.stoppingPowerMax ?? props.item.stoppingPower,
+      stoppingPowerHeadMax: (props.item as { stoppingPowerHeadMax?: number }).stoppingPowerHeadMax ?? props.item.stoppingPowerMax ?? props.item.stoppingPower,
       currentHealth: props.item.currentHealth,
       maxHealth: props.item.maxHealth
     })
+    // Sync from parent when combatant is updated from outside (e.g. damage/armor from Mapa tab)
+    useEffect(() => {
+      const item = props.item as { stoppingPowerHead?: number; stoppingPowerHeadMax?: number };
+      setStats((prev) => ({
+        ...prev,
+        name: props.item.name,
+        currentHealth: props.item.currentHealth,
+        maxHealth: props.item.maxHealth,
+        stoppingPower: props.item.stoppingPower,
+        stoppingPowerMax: props.item.stoppingPowerMax ?? props.item.stoppingPower,
+        stoppingPowerHead: item.stoppingPowerHead ?? props.item.stoppingPower,
+        stoppingPowerHeadMax: item.stoppingPowerHeadMax ?? props.item.stoppingPowerMax ?? props.item.stoppingPower,
+      }))
+    }, [props.item.currentHealth, props.item.maxHealth, props.item.stoppingPower, props.item.stoppingPowerMax, (props.item as { stoppingPowerHead?: number }).stoppingPowerHead, (props.item as { stoppingPowerHeadMax?: number }).stoppingPowerHeadMax, props.item.name])
     useEffect(()=>{
       if(props.currentTurn == props.index && currentRef.current) {
         currentRef.current.scrollIntoView({behavior: "smooth"})
@@ -100,7 +116,52 @@ export default function Fighter(props: any) {
           <Row style={style}>
             <Col span={24}>
               <Row justify="space-between" align="middle">
-                <Col>{stats.name}</Col>
+                <Col>
+                  {props.onNameChange ? (
+                    editingName ? (
+                      <Input
+                        size="small"
+                        value={nameEditValue}
+                        onChange={(e) => setNameEditValue(e.target.value)}
+                        onBlur={() => {
+                          const s = nameEditValue.trim();
+                          if (s) props.onNameChange?.(props.item.id, s);
+                          setEditingName(false);
+                        }}
+                        onPressEnter={() => {
+                          const s = nameEditValue.trim();
+                          if (s) props.onNameChange?.(props.item.id, s);
+                          setEditingName(false);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ width: 160 }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          setNameEditValue(stats.name);
+                          setEditingName(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setNameEditValue(stats.name);
+                            setEditingName(true);
+                          }
+                        }}
+                        style={{ cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}
+                        title="Clique para editar o nome"
+                      >
+                        {stats.name}
+                      </span>
+                    )
+                  ) : (
+                    stats.name
+                  )}
+                </Col>
                 {props.onInitiativeChange != null && (
                   <Col>
                     <span style={{ marginRight: 8 }}>Inic.:</span>

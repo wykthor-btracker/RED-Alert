@@ -1,12 +1,25 @@
 import { Button, Col, FloatButton, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import QueueAnim from "rc-queue-anim";
-import { useContext, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import Fighter from "../comps/Fighter";
 import { InitiativeCombatant, LogData, MessageBusContext } from "../contexts/MessageBusContext";
 const { Title } = Typography;
 
-function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; initiative: number } {
+/** Base name without a leading (N) prefix, for duplicate counting. */
+function baseName(name: string): string {
+  return name.replace(/^\(\d+\)\s*/, "").trim() || name;
+}
+
+/** If the list already has combatants with the same base name, return "(2)Name" etc. */
+function nameForNewCombatant(existing: InitiativeCombatant[], name: string): string {
+  const base = baseName(name);
+  const count = existing.filter((c) => baseName(c.name) === base).length;
+  if (count === 0) return name;
+  return `(${count + 1})${base}`;
+}
+
+function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number } {
   return {
     id: c.id,
     name: c.name,
@@ -14,15 +27,18 @@ function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHea
     maxHealth: c.maxHealth ?? 0,
     stoppingPower: c.stoppingPower ?? 0,
     stoppingPowerMax: c.stoppingPowerMax ?? 0,
+    stoppingPowerHead: c.stoppingPowerHead ?? c.stoppingPower ?? 0,
+    stoppingPowerHeadMax: c.stoppingPowerHeadMax ?? c.stoppingPowerMax ?? 0,
     initiative: c.initiative ?? 0,
   };
 }
 
 function DraggableFighter(props: {
-  item: { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; initiative: number };
+  item: { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number };
   index: number;
   currentTurn: number;
   onInitiativeChange: (id: string, value: number) => void;
+  onNameChange?: (id: string, newName: string) => void;
   onMove: (fromIndex: number, toIndex: number) => void;
   totalCount: number;
 }) {
@@ -64,6 +80,7 @@ function DraggableFighter(props: {
         index={props.index}
         currentTurn={props.currentTurn}
         onInitiativeChange={props.onInitiativeChange}
+        onNameChange={props.onNameChange}
       />
     </div>
   );
@@ -191,6 +208,13 @@ export default function InitiativeTracker(props: any) {
     const data = useMemo(() => initiativeCombatants.map(toIdata), [initiativeCombatants])
     const [toggleForm, setToggleForm]   = useState(false)
     const [currentTurnId, setCurrentTurnId] = useState<string | null>(null)
+
+    // Clear current turn if that combatant was removed (e.g. via Deletar on map)
+    useEffect(() => {
+      if (currentTurnId != null && !data.some((d) => d.id === currentTurnId)) {
+        setCurrentTurnId(null);
+      }
+    }, [data, currentTurnId])
     const [tracking, setTracking]       = useState(false)
     const [addFighters, setAddFighters] = useState(false)
 
@@ -238,31 +262,39 @@ export default function InitiativeTracker(props: any) {
       broadcastUpdate(`Iniciativa: voltou para ${data[prevIdx].name}`)
     }
     const onFinish: FormProps<FieldType>['onFinish'] = (values) => {
+      const sp = Number(values.SP);
+      const displayName = nameForNewCombatant(initiativeCombatants, values.name);
       const next: InitiativeCombatant[] = [...initiativeCombatants, {
         id: nextId(),
-        name: values.name,
+        name: displayName,
         currentHealth: Number(values.health),
         maxHealth: Number(values.health),
-        stoppingPower: Number(values.SP),
-        stoppingPowerMax: Number(values.SP),
+        stoppingPower: sp,
+        stoppingPowerMax: sp,
+        stoppingPowerHead: sp,
+        stoppingPowerHeadMax: sp,
         initiative: 0,
       }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
       setInitiativeCombatants(next)
-      broadcastUpdate(`Iniciativa: combatente adicionado — ${values.name}`)
+      broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`)
     };
     function addNPC (values: any) {
         const initRoll = Math.floor(Math.random() * 10) + 1
+        const sp = Number(values.SP)
+        const displayName = nameForNewCombatant(initiativeCombatants, values.name)
         const next: InitiativeCombatant[] = [...initiativeCombatants, {
           id: nextId(),
-          name: values.name,
+          name: displayName,
           currentHealth: Number(values.health),
           maxHealth: Number(values.health),
-          stoppingPower: Number(values.SP),
-          stoppingPowerMax: Number(values.SP),
+          stoppingPower: sp,
+          stoppingPowerMax: sp,
+          stoppingPowerHead: sp,
+          stoppingPowerHeadMax: sp,
           initiative: initRoll,
         }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
         setInitiativeCombatants(next)
-        broadcastUpdate(`Iniciativa: combatente adicionado — ${values.name}`)
+        broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`)
     }
     function onInitiativeChange(id: string, value: number) {
       const intValue = Math.round(Number(value)) || 0
@@ -270,6 +302,14 @@ export default function InitiativeTracker(props: any) {
         d.id === id ? { ...d, initiative: intValue } : d
       ).sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
       setInitiativeCombatants(next)
+    }
+    function onNameChange(id: string, newName: string) {
+      const trimmed = newName.trim()
+      if (!trimmed) return
+      setInitiativeCombatants((prev) =>
+        prev.map((d) => (d.id === id ? { ...d, name: trimmed } : d))
+      )
+      broadcastUpdate(`Iniciativa: nome alterado para "${trimmed}"`)
     }
     function moveCombatant(fromIndex: number, toIndex: number) {
       if (fromIndex === toIndex || toIndex < 0 || toIndex >= data.length) return
@@ -400,6 +440,7 @@ export default function InitiativeTracker(props: any) {
                     index={index}
                     currentTurn={tracking ? currentTurnIndex : -1}
                     onInitiativeChange={onInitiativeChange}
+                    onNameChange={onNameChange}
                     onMove={moveCombatant}
                     totalCount={data.length}
                   />

@@ -2,7 +2,7 @@
 
 import { Button, Col, Dropdown, InputNumber, MenuProps, Modal, Row, Switch } from "antd";
 import { useContext, useMemo, useState } from "react";
-import { MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
+import { LogData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
 
 const DRAG_TYPE_INITIATIVE = "application/x-initiative-combatant";
 const DRAG_TYPE_MAP_CELL = "application/x-map-cell";
@@ -20,17 +20,107 @@ function truncateName(name: string, maxLen: number): string {
   return name.slice(0, maxLen - 1) + "…";
 }
 
+/** Floating bars shown on hover: health (red), body SP (yellow), head SP (orange). Responsive to cell size. */
+function CombatantHoverBars(props: {
+  currentHealth: number;
+  maxHealth: number;
+  stoppingPower: number;
+  stoppingPowerMax: number;
+  stoppingPowerHead: number;
+  stoppingPowerHeadMax: number;
+  cellSize: number;
+}) {
+  const maxH = Math.max(1, props.maxHealth);
+  const maxSP = Math.max(1, props.stoppingPowerMax);
+  const maxSPHead = Math.max(1, props.stoppingPowerHeadMax);
+  const hp = Math.min(1, Math.max(0, props.currentHealth / maxH));
+  const bodySP = Math.min(1, Math.max(0, props.stoppingPower / maxSP));
+  const headSP = Math.min(1, Math.max(0, props.stoppingPowerHead / maxSPHead));
+  // Responsive size: scale with cell, with sensible min/max for readability
+  const scale = Math.max(1, Math.min(3, props.cellSize / 24));
+  const w = Math.round(Math.max(100, Math.min(220, props.cellSize * 2.2)));
+  const barH = Math.max(6, Math.round(8 * scale));
+  const gap = Math.max(4, Math.round(5 * scale));
+  const padding = Math.max(6, Math.round(8 * scale));
+  const fontSize = Math.max(10, Math.min(13, Math.round(11 * scale)));
+  const labelStyle: React.CSSProperties = {
+    fontSize,
+    color: "rgba(255,255,255,0.95)",
+    marginBottom: 2,
+    fontWeight: 600,
+  };
+  const barTrackStyle: React.CSSProperties = {
+    width: "100%",
+    height: barH,
+    background: "rgba(255,255,255,0.2)",
+    borderRadius: 3,
+    overflow: "hidden",
+  };
+  return (
+    <div
+      style={{
+        position: "absolute",
+        bottom: "100%",
+        left: "50%",
+        transform: "translateX(-50%)",
+        marginBottom: 6,
+        minWidth: w,
+        padding: `${padding}px ${padding + 4}px`,
+        background: "rgba(0,0,0,0.85)",
+        borderRadius: 6,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+        zIndex: 10,
+        pointerEvents: "none",
+      }}
+    >
+      <div style={{ marginBottom: gap }}>
+        <div style={labelStyle}>HP</div>
+        <div style={barTrackStyle}>
+          <div style={{ width: `${hp * 100}%`, height: "100%", background: "#c0392b", borderRadius: 3 }} />
+        </div>
+      </div>
+      <div style={{ marginBottom: gap }}>
+        <div style={labelStyle}>Corpo</div>
+        <div style={barTrackStyle}>
+          <div style={{ width: `${bodySP * 100}%`, height: "100%", background: "#f1c40f", borderRadius: 3 }} />
+        </div>
+      </div>
+      <div>
+        <div style={labelStyle}>Cabeça</div>
+        <div style={barTrackStyle}>
+          <div style={{ width: `${headSP * 100}%`, height: "100%", background: "#e67e22", borderRadius: 3 }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MapGrid() {
-  const { mapGrid, setMapGrid, isHost, initiativeCombatants, setInitiativeCombatants } = useContext(MessageBusContext);
+  const { mapGrid, setMapGrid, isHost, initiativeCombatants, setInitiativeCombatants, send, senderData } = useContext(MessageBusContext);
+
+  const broadcastUpdate = (message: string) => {
+    if (send && senderData) {
+      send({
+        content: { message },
+        metadata: { sender: senderData, type: "message", code: 2, data: {} },
+      } as LogData);
+    }
+  };
   const [rowsInput, setRowsInput] = useState(mapGrid?.rows ?? 4);
   const [colsInput, setColsInput] = useState(mapGrid?.cols ?? 4);
   const [paintMode, setPaintMode] = useState(false);
   const [coverHp, setCoverHp] = useState<number | null>(null);
   /** Dropdown: which cell (with combatant) is showing the menu */
   const [cellMenu, setCellMenu] = useState<{ r: number; c: number; combatantId: string } | null>(null);
-  /** Modal for Dano / Dano à armadura amount */
-  const [damageModal, setDamageModal] = useState<{ type: "dano" | "armadura"; combatantId: string; r: number; c: number } | null>(null);
+  /** Dropdown: which cover cell is showing the menu */
+  const [coverMenu, setCoverMenu] = useState<{ r: number; c: number } | null>(null);
+  /** Modal for Dano / Dano à armadura amount (combatant) */
+  const [damageModal, setDamageModal] = useState<{ type: "dano" | "armadura" | "armaduraHead"; combatantId: string; r: number; c: number } | null>(null);
+  /** Modal for cover/wall damage */
+  const [coverDamageModal, setCoverDamageModal] = useState<{ r: number; c: number } | null>(null);
   const [damageAmount, setDamageAmount] = useState<number>(1);
+  /** Combatant cell being hovered (for floating bars) */
+  const [hoveredCell, setHoveredCell] = useState<{ r: number; c: number } | null>(null);
 
   const handleCreateGrid = () => {
     const rows = Math.max(1, Math.min(24, Math.round(rowsInput)));
@@ -39,6 +129,13 @@ export default function MapGrid() {
     setColsInput(cols);
     const cells = buildEmptyGrid(rows, cols);
     setMapGrid({ rows, cols, cells, coverCells: {} });
+  };
+
+  const handleClearMap = () => {
+    if (!mapGrid || !isHost) return;
+    const cells = buildEmptyGrid(rows, cols);
+    setMapGrid({ ...mapGrid, cells, coverCells: {} });
+    broadcastUpdate("Mapa: grid limpo (iniciativa mantida)");
   };
 
   const gridState = mapGrid ?? { rows: 0, cols: 0, cells: [] as (string | null)[][] };
@@ -57,6 +154,24 @@ export default function MapGrid() {
     setMapGrid({ ...mapGrid, coverCells: next });
   };
 
+  const applyCoverDamage = (r: number, c: number, amount: number) => {
+    if (!mapGrid || !isHost) return;
+    const key = coverKey(r, c);
+    const current = coverCells[key]?.health ?? 0;
+    const newHealth = Math.max(0, current - amount);
+    const next = { ...coverCells };
+    if (newHealth <= 0) {
+      delete next[key];
+      broadcastUpdate(`Mapa: cobertura em (${r + 1},${c + 1}) destruída`);
+    } else {
+      next[key] = { health: newHealth };
+      broadcastUpdate(`Mapa: cobertura em (${r + 1},${c + 1}) tomou ${amount} de dano (HP: ${newHealth})`);
+    }
+    setMapGrid({ ...mapGrid, coverCells: next });
+    setCoverDamageModal(null);
+    setDamageAmount(1);
+  };
+
   const placeOrMoveCombatant = (toR: number, toC: number, combatantId: string, fromR?: number, fromC?: number) => {
     if (!mapGrid || !isHost) return;
     const nextCells = cells.map((row, r) =>
@@ -72,6 +187,7 @@ export default function MapGrid() {
   const handleCellDrop = (e: React.DragEvent, toR: number, toC: number) => {
     e.preventDefault();
     if (!isHost || !mapGrid) return;
+    if (coverKey(toR, toC) in coverCells) return;
     const initiativeId = e.dataTransfer.getData(DRAG_TYPE_INITIATIVE);
     const cellPayload = e.dataTransfer.getData(DRAG_TYPE_MAP_CELL);
     if (initiativeId) {
@@ -103,32 +219,58 @@ export default function MapGrid() {
 
   const clearCellCombatant = (r: number, c: number, combatantId: string) => {
     if (!mapGrid || !isHost) return;
+    const combatant = initiativeCombatants.find((x) => x.id === combatantId);
+    const name = combatant?.name ?? combatantId.slice(-6);
     const nextCells = cells.map((row, ri) =>
       row.map((val, ci) => (ri === r && ci === c ? null : val))
     );
     setMapGrid({ ...mapGrid, cells: nextCells });
-    setInitiativeCombatants(initiativeCombatants.filter((x) => x.id !== combatantId));
+    setInitiativeCombatants((prev) => prev.filter((x) => x.id !== combatantId));
+    broadcastUpdate(`Mapa: ${name} removido do mapa e da iniciativa`);
     setCellMenu(null);
   };
 
   const applyDamage = (combatantId: string, amount: number) => {
-    const next = initiativeCombatants.map((c) =>
-      c.id === combatantId
-        ? { ...c, currentHealth: Math.max(0, (c.currentHealth ?? 0) - amount) }
-        : c
+    const combatant = initiativeCombatants.find((c) => c.id === combatantId);
+    const name = combatant?.name ?? combatantId.slice(-6);
+    setInitiativeCombatants((prev) =>
+      prev.map((c) =>
+        c.id === combatantId
+          ? { ...c, currentHealth: Math.max(0, (c.currentHealth ?? 0) - amount) }
+          : c
+      )
     );
-    setInitiativeCombatants(next);
+    broadcastUpdate(`${name} tomou ${amount} de dano`);
     setDamageModal(null);
     setDamageAmount(1);
   };
 
   const applyArmorDamage = (combatantId: string, amount: number) => {
-    const next = initiativeCombatants.map((c) =>
-      c.id === combatantId
-        ? { ...c, stoppingPower: Math.max(0, (c.stoppingPower ?? 0) - amount) }
-        : c
+    const combatant = initiativeCombatants.find((c) => c.id === combatantId);
+    const name = combatant?.name ?? combatantId.slice(-6);
+    setInitiativeCombatants((prev) =>
+      prev.map((c) =>
+        c.id === combatantId
+          ? { ...c, stoppingPower: Math.max(0, (c.stoppingPower ?? 0) - amount) }
+          : c
+      )
     );
-    setInitiativeCombatants(next);
+    broadcastUpdate(`${name}: SP reduzido em ${amount}`);
+    setDamageModal(null);
+    setDamageAmount(1);
+  };
+
+  const applyArmorHeadDamage = (combatantId: string, amount: number) => {
+    const combatant = initiativeCombatants.find((c) => c.id === combatantId);
+    const name = combatant?.name ?? combatantId.slice(-6);
+    setInitiativeCombatants((prev) =>
+      prev.map((c) =>
+        c.id === combatantId
+          ? { ...c, stoppingPowerHead: Math.max(0, (c.stoppingPowerHead ?? c.stoppingPower ?? 0) - amount) }
+          : c
+      )
+    );
+    broadcastUpdate(`${name}: SP cabeça reduzido em ${amount}`);
     setDamageModal(null);
     setDamageAmount(1);
   };
@@ -216,6 +358,11 @@ export default function MapGrid() {
                 Atualizar grid
               </Button>
             </Col>
+            <Col>
+              <Button onClick={handleClearMap}>
+                Limpar mapa
+              </Button>
+            </Col>
             <Col style={{ marginLeft: 16 }}>
               <Switch checked={paintMode} onChange={setPaintMode} />
               <span style={{ marginLeft: 8 }}>Pintar</span>
@@ -284,21 +431,26 @@ export default function MapGrid() {
               const isCover = key in coverCells;
               const coverInfo = coverCells[key];
               const coverHealth = coverInfo?.health;
-              const combatantName = combatantId
-                ? (initiativeCombatants.find((x) => x.id === combatantId)?.name ?? combatantId.slice(-6))
-                : null;
+              const combatant = combatantId ? initiativeCombatants.find((x) => x.id === combatantId) : null;
+              const combatantName = combatant?.name ?? (combatantId ? combatantId.slice(-6) : null);
               const displayText = combatantName
                 ? truncateName(combatantName, Math.max(6, Math.floor(cellSize / 7)))
                 : null;
-              const canDrop = isHost && !paintMode;
+              const canDrop = isHost && !paintMode && !isCover;
               const showCellMenu = isHost && !paintMode && !!combatantId;
+              const showCoverMenu = isHost && !paintMode && isCover;
               const menuItems: MenuProps["items"] = showCellMenu
                 ? [
                     { key: "deletar", label: "Deletar", onClick: () => clearCellCombatant(r, c, combatantId!) },
                     { key: "dano", label: "Dano", onClick: () => setDamageModal({ type: "dano", combatantId: combatantId!, r, c }) },
                     { key: "armadura", label: "Dano à armadura", onClick: () => setDamageModal({ type: "armadura", combatantId: combatantId!, r, c }) },
+                    { key: "armaduraHead", label: "Dano à armadura (cabeça)", onClick: () => setDamageModal({ type: "armaduraHead", combatantId: combatantId!, r, c }) },
                   ]
                 : [];
+              const coverMenuItems: MenuProps["items"] = showCoverMenu
+                ? [{ key: "dano", label: "Dano", onClick: () => { setCoverDamageModal({ r, c }); setCoverMenu(null); } }]
+                : [];
+              const isHovered = hoveredCell?.r === r && hoveredCell?.c === c;
               const cellContent = (
                 <div
                   key={`${r}-${c}`}
@@ -315,7 +467,10 @@ export default function MapGrid() {
                   }
                   onDragOver={canDrop ? (e) => e.preventDefault() : undefined}
                   onDrop={canDrop ? (e) => handleCellDrop(e, r, c) : undefined}
+                  onMouseEnter={() => combatantId && combatant && setHoveredCell({ r, c })}
+                  onMouseLeave={() => setHoveredCell(null)}
                   style={{
+                    position: "relative",
                     width: cellSize,
                     height: cellSize,
                     backgroundColor: isCover ? "#8b7355" : "#fff",
@@ -327,9 +482,9 @@ export default function MapGrid() {
                     justifyContent: "center",
                     fontSize: 10,
                     color: combatantId ? "#1677ff" : isCover ? "#f0e6d8" : "#bfbfbf",
-                    overflow: "hidden",
+                    overflow: "visible",
                     padding: 2,
-                    cursor: isHost && paintMode ? "crosshair" : isHost && combatantId ? "grab" : undefined,
+                    cursor: isHost && paintMode ? "crosshair" : isHost && (combatantId || isCover) ? "pointer" : undefined,
                   }}
                   title={
                     isCover
@@ -339,22 +494,68 @@ export default function MapGrid() {
                         : "Casa vazia — arraste da lista ou de outra casa"
                   }
                 >
-                  {displayText ?? (isCover && coverHealth != null ? `HP ${coverHealth}` : isCover ? "🛡" : "—")}
+                  {combatantId && combatant ? (
+                    <>
+                      {isHovered && (
+                        <CombatantHoverBars
+                          currentHealth={combatant.currentHealth ?? 0}
+                          maxHealth={combatant.maxHealth ?? 1}
+                          stoppingPower={combatant.stoppingPower ?? 0}
+                          stoppingPowerMax={combatant.stoppingPowerMax ?? 1}
+                          stoppingPowerHead={combatant.stoppingPowerHead ?? combatant.stoppingPower ?? 0}
+                          stoppingPowerHeadMax={combatant.stoppingPowerHeadMax ?? combatant.stoppingPowerMax ?? 1}
+                          cellSize={cellSize}
+                        />
+                      )}
+                      <span
+                        style={{
+                          fontSize: Math.max(8, Math.floor(cellSize / 6)),
+                          fontWeight: 600,
+                          textAlign: "center",
+                          lineHeight: 1.1,
+                          maxWidth: cellSize - 4,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                        }}
+                      >
+                        {displayText ?? combatantName ?? ""}
+                      </span>
+                    </>
+                  ) : (
+                    displayText ?? (isCover && coverHealth != null ? `HP ${coverHealth}` : isCover ? "🛡" : "—")
+                  )}
                 </div>
               );
-              return showCellMenu ? (
-                <Dropdown
-                  key={`${r}-${c}`}
-                  menu={{ items: menuItems, onClick: () => setCellMenu(null) }}
-                  trigger={["click"]}
-                  open={!!(cellMenu && cellMenu.r === r && cellMenu.c === c)}
-                  onOpenChange={(open) => setCellMenu(open ? { r, c, combatantId: combatantId! } : null)}
-                >
-                  {cellContent}
-                </Dropdown>
-              ) : (
-                cellContent
-              );
+              if (showCellMenu) {
+                return (
+                  <Dropdown
+                    key={`${r}-${c}`}
+                    menu={{ items: menuItems, onClick: () => setCellMenu(null) }}
+                    trigger={["click"]}
+                    open={!!(cellMenu && cellMenu.r === r && cellMenu.c === c)}
+                    onOpenChange={(open) => setCellMenu(open ? { r, c, combatantId: combatantId! } : null)}
+                  >
+                    {cellContent}
+                  </Dropdown>
+                );
+              }
+              if (showCoverMenu) {
+                return (
+                  <Dropdown
+                    key={`${r}-${c}`}
+                    menu={{ items: coverMenuItems, onClick: () => setCoverMenu(null) }}
+                    trigger={["click"]}
+                    open={!!(coverMenu && coverMenu.r === r && coverMenu.c === c)}
+                    onOpenChange={(open) => setCoverMenu(open ? { r, c } : null)}
+                  >
+                    {cellContent}
+                  </Dropdown>
+                );
+              }
+              return cellContent;
             })
           )}
         </div>
@@ -362,15 +563,35 @@ export default function MapGrid() {
         </Row>
       </Col>
       <Modal
-        title={damageModal?.type === "dano" ? "Dano" : "Dano à armadura"}
+        title={damageModal?.type === "dano" ? "Dano" : damageModal?.type === "armaduraHead" ? "Dano à armadura (cabeça)" : "Dano à armadura"}
         open={!!damageModal}
         onOk={() => {
           if (damageModal) {
             if (damageModal.type === "dano") applyDamage(damageModal.combatantId, damageAmount);
-            else applyArmorDamage(damageModal.combatantId, damageAmount);
+            else if (damageModal.type === "armadura") applyArmorDamage(damageModal.combatantId, damageAmount);
+            else applyArmorHeadDamage(damageModal.combatantId, damageAmount);
           }
         }}
         onCancel={() => { setDamageModal(null); setDamageAmount(1); }}
+        okText="Aplicar"
+        cancelText="Cancelar"
+      >
+        <div style={{ marginTop: 8 }}>
+          <span style={{ marginRight: 8 }}>Quantidade:</span>
+          <InputNumber
+            min={1}
+            value={damageAmount}
+            onChange={(v) => setDamageAmount(Number(v) ?? 1)}
+          />
+        </div>
+      </Modal>
+      <Modal
+        title="Dano na cobertura"
+        open={!!coverDamageModal}
+        onOk={() => {
+          if (coverDamageModal) applyCoverDamage(coverDamageModal.r, coverDamageModal.c, damageAmount);
+        }}
+        onCancel={() => { setCoverDamageModal(null); setDamageAmount(1); }}
         okText="Aplicar"
         cancelText="Cancelar"
       >

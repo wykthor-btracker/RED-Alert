@@ -514,12 +514,15 @@ export function MessageBus (props: any) {
       });
     }
 
-    function setInitiativeCombatants(list: InitiativeCombatant[]) {
+    function setInitiativeCombatants(listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) {
       if (!isHost) return;
-      setInitiativeCombatantsState(list);
-      initiativeCombatantsRef.current = list;
+      const next = typeof listOrUpdater === "function"
+        ? listOrUpdater(initiativeCombatantsRef.current)
+        : listOrUpdater;
+      setInitiativeCombatantsState(next);
+      initiativeCombatantsRef.current = next;
       const payload = {
-        metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: list },
+        metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: next },
         content: {},
       } as LogData;
       connectionsRef.current.forEach((c) => {
