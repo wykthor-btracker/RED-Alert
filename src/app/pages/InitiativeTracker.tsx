@@ -21,7 +21,7 @@ function nameForNewCombatant(existing: InitiativeCombatant[], name: string): str
   return `(${count + 1})${base}`;
 }
 
-function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number } {
+function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number; bodyArmorName?: string; headArmorName?: string } {
   return {
     id: c.id,
     name: c.name,
@@ -32,15 +32,18 @@ function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHea
     stoppingPowerHead: c.stoppingPowerHead ?? c.stoppingPower ?? 0,
     stoppingPowerHeadMax: c.stoppingPowerHeadMax ?? c.stoppingPowerMax ?? 0,
     initiative: c.initiative ?? 0,
+    bodyArmorName: c.bodyArmorName,
+    headArmorName: c.headArmorName,
   };
 }
 
 function DraggableFighter(props: {
-  item: { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number };
+  item: { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number; bodyArmorName?: string; headArmorName?: string };
   index: number;
   currentTurn: number;
   onInitiativeChange: (id: string, value: number) => void;
   onNameChange?: (id: string, newName: string) => void;
+  onHealthChange?: (id: string, currentHealth: number, maxHealth?: number) => void;
   onStoppingPowerChange?: (id: string, body: number, bodyMax?: number) => void;
   onStoppingPowerHeadChange?: (id: string, head: number, headMax?: number) => void;
   onMove: (fromIndex: number, toIndex: number) => void;
@@ -85,6 +88,7 @@ function DraggableFighter(props: {
         currentTurn={props.currentTurn}
         onInitiativeChange={props.onInitiativeChange}
         onNameChange={props.onNameChange}
+        onHealthChange={props.onHealthChange}
         onStoppingPowerChange={props.onStoppingPowerChange}
         onStoppingPowerHeadChange={props.onStoppingPowerHeadChange}
       />
@@ -210,7 +214,7 @@ export default function InitiativeTracker(props: any) {
       stoppingPowerMax: number;
       initiative: number;
     }
-    const { send, senderData, isHost, initiativeCombatants, setInitiativeCombatants, savedCharacters } = useContext(MessageBusContext)
+    const { send, senderData, isHost, initiativeCombatants, setInitiativeCombatants, savedCharacters, userData, currentEditedOwnerName, skipNextSheetToCombatantSync, setSkipNextSheetToCombatantSync } = useContext(MessageBusContext)
     const data = useMemo(() => initiativeCombatants.map(toIdata), [initiativeCombatants])
     const [toggleForm, setToggleForm]   = useState(false)
     const [currentTurnId, setCurrentTurnId] = useState<string | null>(null)
@@ -221,6 +225,69 @@ export default function InitiativeTracker(props: any) {
         setCurrentTurnId(null);
       }
     }, [data, currentTurnId])
+
+    // When saved characters or the currently edited sheet (userData) change (e.g. equipado toggled in Personagem), refresh current and max SP for combatants that came from a sheet. Skip one run when we just pushed combatant→sheet (e.g. damage on Mapa) to avoid overwriting.
+    useEffect(() => {
+      if (skipNextSheetToCombatantSync) {
+        setSkipNextSheetToCombatantSync(false);
+        return;
+      }
+      setInitiativeCombatants((prev) => {
+        let changed = false;
+        const sheetDisplay = (s: { data: { sheetName?: string }; ownerName: string }) =>
+          (s.data.sheetName ?? "").trim() || s.ownerName;
+        const next = prev.map((c) => {
+          if (!c.sourceOwnerName) return c;
+          const wantSheet = (c.sourceSheetName ?? "").trim() || c.sourceOwnerName;
+          let sheetData: import("../types/character").CharacterData | undefined;
+          // Prefer live edited sheet when the combatant belongs to the currently edited owner
+          if (userData && currentEditedOwnerName && currentEditedOwnerName === c.sourceOwnerName) {
+            sheetData = userData;
+          }
+          if (!sheetData) {
+            let entry = savedCharacters.find(
+              (s) => s.ownerName === c.sourceOwnerName && sheetDisplay(s) === wantSheet
+            );
+            if (!entry) {
+              const forOwner = savedCharacters.filter((s) => s.ownerName === c.sourceOwnerName);
+              if (forOwner.length === 1) entry = forOwner[0];
+            }
+            sheetData = entry?.data;
+          }
+          if (!sheetData) return c;
+          const sp = getSheetStoppingPower(sheetData, referenceWearables);
+          const body = Number(sp.body);
+          const bodyMax = Math.max(Number(sp.bodyMax), 1);
+          const head = Number(sp.head);
+          const headMax = Math.max(Number(sp.headMax), 1);
+          const sheetHp = Number(sheetData.currentHealth ?? sheetData.maxHealth ?? 0);
+          const sheetHpMax = Math.max(Number(sheetData.maxHealth ?? 0), 1);
+          const curBody = c.stoppingPower ?? 0;
+          const curBodyMax = c.stoppingPowerMax ?? 0;
+          const curHead = c.stoppingPowerHead ?? c.stoppingPower ?? 0;
+          const curHeadMax = c.stoppingPowerHeadMax ?? c.stoppingPowerMax ?? 0;
+          const curHp = c.currentHealth ?? 0;
+          const curHpMax = c.maxHealth ?? 0;
+          const hpMatch = curHp === sheetHp && curHpMax === sheetHpMax;
+          const spMatch = curBody === body && curBodyMax === bodyMax && curHead === head && curHeadMax === headMax;
+          if (hpMatch && spMatch) return c;
+          changed = true;
+          return {
+            ...c,
+            currentHealth: sheetHp,
+            maxHealth: sheetHpMax,
+            stoppingPower: body,
+            stoppingPowerMax: bodyMax,
+            stoppingPowerHead: head,
+            stoppingPowerHeadMax: headMax,
+            bodyArmorName: sp.bodyArmorName,
+            headArmorName: sp.headArmorName,
+          };
+        });
+        return changed ? next : prev;
+      });
+    }, [savedCharacters, userData, currentEditedOwnerName, setInitiativeCombatants, skipNextSheetToCombatantSync, setSkipNextSheetToCombatantSync])
+
     const [tracking, setTracking]       = useState(false)
     const [addFighters, setAddFighters] = useState(false)
     const [addSheets, setAddSheets] = useState(false)
@@ -319,6 +386,10 @@ export default function InitiativeTracker(props: any) {
         stoppingPowerHead: sp.head,
         stoppingPowerHeadMax: Math.max(sp.headMax, 1),
         initiative: 0,
+        sourceOwnerName: entry.ownerName,
+        sourceSheetName: sheet.sheetName?.trim() || entry.ownerName,
+        bodyArmorName: sp.bodyArmorName,
+        headArmorName: sp.headArmorName,
       }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
       setInitiativeCombatants(next);
       broadcastUpdate(`Iniciativa: ficha adicionada — ${displayName}`);
@@ -338,7 +409,18 @@ export default function InitiativeTracker(props: any) {
       )
       broadcastUpdate(`Iniciativa: nome alterado para "${trimmed}"`)
     }
+    function onHealthChange(id: string, currentHealth: number, maxHealth?: number) {
+      setSkipNextSheetToCombatantSync(true);
+      setInitiativeCombatants((prev) =>
+        prev.map((d) =>
+          d.id === id
+            ? { ...d, currentHealth, ...(maxHealth != null && { maxHealth }) }
+            : d
+        )
+      )
+    }
     function onStoppingPowerChange(id: string, body: number, bodyMax?: number) {
+      setSkipNextSheetToCombatantSync(true);
       setInitiativeCombatants((prev) =>
         prev.map((d) =>
           d.id === id
@@ -348,6 +430,7 @@ export default function InitiativeTracker(props: any) {
       )
     }
     function onStoppingPowerHeadChange(id: string, head: number, headMax?: number) {
+      setSkipNextSheetToCombatantSync(true);
       setInitiativeCombatants((prev) =>
         prev.map((d) =>
           d.id === id
@@ -512,6 +595,7 @@ export default function InitiativeTracker(props: any) {
                     currentTurn={tracking ? currentTurnIndex : -1}
                     onInitiativeChange={onInitiativeChange}
                     onNameChange={onNameChange}
+                    onHealthChange={onHealthChange}
                     onStoppingPowerChange={onStoppingPowerChange}
                     onStoppingPowerHeadChange={onStoppingPowerHeadChange}
                     onMove={moveCombatant}

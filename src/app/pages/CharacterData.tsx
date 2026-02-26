@@ -631,6 +631,8 @@ function InventorySection({
   updateData: (updater: (prev: CharacterDataT) => CharacterDataT) => void;
 }) {
   const [addModal, setAddModal] = useState<"weapon" | "wearable" | "consumable" | null>(null);
+  /** When adding wearable from Armadura or Capacete section, so custom items get equipmentKind and SP fields. */
+  const [addSection, setAddSection] = useState<"armor" | "helm" | null>(null);
   const [addForm] = Form.useForm();
 
   const addEntry = (kind: "weapons" | "wearables" | "consumables", entry: InventoryEntry) => {
@@ -653,9 +655,10 @@ function InventorySection({
     consumables: referenceConsumables,
   };
 
-  const handleAdd = (kind: "weapon" | "wearable" | "consumable") => {
+  const handleAdd = (kind: "weapon" | "wearable" | "consumable", section?: "armor" | "helm") => {
     addForm.resetFields();
     setAddModal(kind);
+    setAddSection(section ?? null);
   };
 
   const handleAddOk = () => {
@@ -674,8 +677,27 @@ function InventorySection({
         referenceId,
         notes: vals.notes,
       };
+      if (k === "wearable") {
+        const ref = (refs.wearables as ReferenceWearable[]).find((r) => r.id === referenceId);
+        entry.equipmentKind = ref?.equipmentKind ?? addSection ?? undefined;
+        const maxBody = vals.spBodyMax != null ? Number(vals.spBodyMax) : undefined;
+        const curBody = vals.spBodyCurrent != null ? Number(vals.spBodyCurrent) : maxBody;
+        const maxHead = vals.spHeadMax != null ? Number(vals.spHeadMax) : undefined;
+        const curHead = vals.spHeadCurrent != null ? Number(vals.spHeadCurrent) : maxHead;
+        if (addSection === "armor" && (maxBody != null || curBody != null)) {
+          const max = maxBody ?? curBody ?? 0;
+          entry.stoppingPowerBody = max;
+          entry.currentSPBody = curBody ?? max;
+        }
+        if (addSection === "helm" && (maxHead != null || curHead != null)) {
+          const max = maxHead ?? curHead ?? 0;
+          entry.stoppingPowerHead = max;
+          entry.currentSPHead = curHead ?? max;
+        }
+      }
       addEntry(key, entry);
       setAddModal(null);
+      setAddSection(null);
     });
   };
 
@@ -712,16 +734,16 @@ function InventorySection({
   const refWearables = refs.wearables as ReferenceWearable[];
   const wearablesWithIndex = wearables.map((w, i) => ({ w, globalIdx: i }));
   const armorItems = wearablesWithIndex.filter(({ w }) => {
-    const ref = refWearables.find((r) => r.id === w.referenceId);
-    return ref?.equipmentKind === "armor";
+    const kind = w.equipmentKind ?? refWearables.find((r) => r.id === w.referenceId)?.equipmentKind;
+    return kind === "armor";
   });
   const helmItems = wearablesWithIndex.filter(({ w }) => {
-    const ref = refWearables.find((r) => r.id === w.referenceId);
-    return ref?.equipmentKind === "helm";
+    const kind = w.equipmentKind ?? refWearables.find((r) => r.id === w.referenceId)?.equipmentKind;
+    return kind === "helm";
   });
   const otherWearables = wearablesWithIndex.filter(({ w }) => {
-    const ref = refWearables.find((r) => r.id === w.referenceId);
-    return !ref?.equipmentKind;
+    const kind = w.equipmentKind ?? refWearables.find((r) => r.id === w.referenceId)?.equipmentKind;
+    return !kind;
   });
 
   const updateWearableAt = (globalIdx: number, updater: (prev: InventoryEntry) => InventoryEntry) => {
@@ -729,6 +751,25 @@ function InventorySection({
       ...d,
       wearables: d.wearables.map((w, i) => (i === globalIdx ? updater(w) : w)),
     }));
+  };
+
+  const getWearableKind = (w: InventoryEntry) =>
+    w.equipmentKind ?? refWearables.find((r) => r.id === w.referenceId)?.equipmentKind;
+
+  const setEquipped = (globalIdx: number, kind: "armor" | "helm", checked: boolean) => {
+    if (checked) {
+      updateData((d) => ({
+        ...d,
+        wearables: d.wearables.map((w, i) => {
+          const wKind = getWearableKind(w);
+          if (i === globalIdx) return { ...w, equipped: true };
+          if (wKind === kind) return { ...w, equipped: false };
+          return w;
+        }),
+      }));
+    } else {
+      updateWearableAt(globalIdx, (prev) => ({ ...prev, equipped: false }));
+    }
   };
 
   const renderArmorHelmList = (
@@ -743,7 +784,8 @@ function InventorySection({
         renderItem={({ w, globalIdx }) => {
           const ref = refWearables.find((r) => r.id === w.referenceId) as ReferenceWearable | undefined;
           const defaultSP = kind === "armor" ? (ref?.stoppingPower ?? 0) : (ref?.stoppingPowerHead ?? ref?.stoppingPower ?? 0);
-          const spValue = kind === "armor" ? (w.stoppingPowerBody ?? defaultSP) : (w.stoppingPowerHead ?? defaultSP);
+          const spMax = kind === "armor" ? (w.stoppingPowerBody ?? defaultSP) : (w.stoppingPowerHead ?? defaultSP);
+          const spCurrent = kind === "armor" ? (w.currentSPBody ?? w.stoppingPowerBody ?? defaultSP) : (w.currentSPHead ?? w.stoppingPowerHead ?? defaultSP);
           return (
             <List.Item
               actions={
@@ -755,24 +797,39 @@ function InventorySection({
               <Space direction="vertical" size={0}>
                 <span>{w.name} × {w.quantity}{w.notes ? ` — ${w.notes}` : ""}</span>
                 {canEdit && (
-                  <Space align="center">
+                  <Space align="center" wrap>
                     <Switch
                       size="small"
                       checked={!!w.equipped}
-                      onChange={(checked) => updateWearableAt(globalIdx, (prev) => ({ ...prev, equipped: checked }))}
+                      onChange={(checked) => setEquipped(globalIdx, kind, checked)}
                     />
                     <span>Equipado</span>
-                    <span style={{ marginLeft: 8 }}>{kind === "armor" ? "SP corpo:" : "SP cabeça:"}</span>
+                    <span style={{ marginLeft: 8 }}>SP atual</span>
                     <InputNumber
                       min={0}
                       size="small"
-                      style={{ width: 64 }}
-                      value={spValue}
+                      style={{ width: 56 }}
+                      value={spCurrent}
                       onChange={(v) =>
                         updateWearableAt(globalIdx, (prev) =>
-                          kind === "armor" ? { ...prev, stoppingPowerBody: v ?? defaultSP } : { ...prev, stoppingPowerHead: v ?? defaultSP }
+                          kind === "armor" ? { ...prev, currentSPBody: v ?? spMax } : { ...prev, currentSPHead: v ?? spMax }
                         )
                       }
+                    />
+                    <span>SP máx</span>
+                    <InputNumber
+                      min={0}
+                      size="small"
+                      style={{ width: 56 }}
+                      value={spMax}
+                      onChange={(v) => {
+                        const maxVal = v ?? defaultSP;
+                        updateWearableAt(globalIdx, (prev) =>
+                          kind === "armor"
+                            ? { ...prev, stoppingPowerBody: maxVal, currentSPBody: Math.min(prev.currentSPBody ?? prev.stoppingPowerBody ?? maxVal, maxVal) }
+                            : { ...prev, stoppingPowerHead: maxVal, currentSPHead: Math.min(prev.currentSPHead ?? prev.stoppingPowerHead ?? maxVal, maxVal) }
+                        );
+                      }}
                     />
                   </Space>
                 )}
@@ -782,7 +839,7 @@ function InventorySection({
         }}
       />
       {canEdit && (
-        <Button type="dashed" icon={<PlusOutlined />} onClick={() => handleAdd("wearable")}>
+        <Button type="dashed" icon={<PlusOutlined />} onClick={() => handleAdd("wearable", kind)}>
           Adicionar
         </Button>
       )}
@@ -857,6 +914,26 @@ function InventorySection({
           <Form.Item name="quantity" label="Quantidade" initialValue={1}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
+          {addModal === "wearable" && addSection === "armor" && (
+            <>
+              <Form.Item name="spBodyMax" label="SP corpo (máx)">
+                <InputNumber min={0} style={{ width: "100%" }} placeholder="Máx" />
+              </Form.Item>
+              <Form.Item name="spBodyCurrent" label="SP corpo (atual)">
+                <InputNumber min={0} style={{ width: "100%" }} placeholder="Se vazio, usa máx" />
+              </Form.Item>
+            </>
+          )}
+          {addModal === "wearable" && addSection === "helm" && (
+            <>
+              <Form.Item name="spHeadMax" label="SP cabeça (máx)">
+                <InputNumber min={0} style={{ width: "100%" }} placeholder="Máx" />
+              </Form.Item>
+              <Form.Item name="spHeadCurrent" label="SP cabeça (atual)">
+                <InputNumber min={0} style={{ width: "100%" }} placeholder="Se vazio, usa máx" />
+              </Form.Item>
+            </>
+          )}
           <Form.Item name="notes" label="Notas">
             <Input placeholder="Notas" />
           </Form.Item>

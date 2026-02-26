@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { InitiativeCombatant, LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
 import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
-import type { CharacterData } from "../types/character";
+import type { CharacterData, InventoryEntry } from "../types/character";
 import { createDefaultCharacterData } from "../types/character";
 
 const CONNECTION_TIMEOUT_MS = 15000;
@@ -11,12 +11,66 @@ const KEEPALIVE_TYPE = "keepalive";
 const SYNC_TYPE = "sync";
 const MAP_GRID_SYNC_TYPE = "mapGridSync";
 const INITIATIVE_SYNC_TYPE = "initiativeSync";
+const INITIATIVE_UPDATE_FROM_CLIENT = "initiativeUpdateFromClient";
 const REQUEST_INITIAL_SYNC_TYPE = "requestInitialSync";
 const USER_DATA_SYNC_TYPE = "userDataSync";
 const USER_DATA_UPDATE_TYPE = "userDataUpdate";
 const USER_SHEETS_SYNC_TYPE = "userSheetsSync";
 
 const HOST_PERSIST_STORAGE_KEY = "soundboard:hostPersist";
+
+/** Build updated sheet data by applying combatant HP/SP to the sheet (so Personagem tab stays in sync with Iniciativa/Mapa). */
+function applyCombatantToSheet(sheet: CharacterData, combatant: InitiativeCombatant): CharacterData {
+  const currentHealth = combatant.currentHealth ?? sheet.currentHealth;
+  const maxHealth = combatant.maxHealth ?? sheet.maxHealth;
+  let bodyUpdated = false;
+  let headUpdated = false;
+  const wearables = (sheet.wearables ?? []).map((w: InventoryEntry) => {
+    if (!w.equipped) return w;
+    const isArmor = w.equipmentKind === "armor" || w.stoppingPowerBody != null;
+    const isHelm = w.equipmentKind === "helm" || w.stoppingPowerHead != null;
+    let next = w;
+    if (isArmor && !bodyUpdated) {
+      next = { ...next, currentSPBody: combatant.stoppingPower, stoppingPowerBody: combatant.stoppingPowerMax ?? combatant.stoppingPower };
+      bodyUpdated = true;
+    }
+    if (isHelm && !headUpdated) {
+      next = { ...next, currentSPHead: combatant.stoppingPowerHead ?? combatant.stoppingPower, stoppingPowerHead: combatant.stoppingPowerHeadMax ?? combatant.stoppingPowerMax ?? combatant.stoppingPower };
+      headUpdated = true;
+    }
+    return next;
+  });
+  return { ...sheet, currentHealth, maxHealth, wearables };
+}
+
+/** Return true if sheet and combatant already match (no need to write back). */
+function sheetMatchesCombatant(sheet: CharacterData, combatant: InitiativeCombatant): boolean {
+  const shp = Number(sheet.currentHealth ?? sheet.maxHealth ?? 0);
+  const shpMax = Number(sheet.maxHealth ?? 0);
+  const chp = combatant.currentHealth ?? 0;
+  const chpMax = combatant.maxHealth ?? 0;
+  if (chp !== shp || chpMax !== shpMax) return false;
+  let bodyChecked = false;
+  let headChecked = false;
+  for (const w of sheet.wearables ?? []) {
+    if (!w.equipped) continue;
+    const isArmor = w.equipmentKind === "armor" || w.stoppingPowerBody != null;
+    const isHelm = w.equipmentKind === "helm" || w.stoppingPowerHead != null;
+    if (isArmor && !bodyChecked) {
+      bodyChecked = true;
+      const sheetBody = w.currentSPBody ?? w.stoppingPowerBody;
+      const sheetBodyMax = w.stoppingPowerBody;
+      if (sheetBody !== (combatant.stoppingPower ?? sheetBody) || sheetBodyMax !== (combatant.stoppingPowerMax ?? combatant.stoppingPower ?? sheetBodyMax)) return false;
+    }
+    if (isHelm && !headChecked) {
+      headChecked = true;
+      const sheetHead = w.currentSPHead ?? w.stoppingPowerHead;
+      const sheetHeadMax = w.stoppingPowerHead;
+      if (sheetHead !== (combatant.stoppingPowerHead ?? combatant.stoppingPower ?? sheetHead) || sheetHeadMax !== (combatant.stoppingPowerHeadMax ?? combatant.stoppingPowerMax ?? combatant.stoppingPower ?? sheetHeadMax)) return false;
+    }
+  }
+  return true;
+}
 
 type HostPersistState = {
   savedCharacters: Array<{ ownerName: string; peerId?: string; data: CharacterData }>;
@@ -89,6 +143,8 @@ export function MessageBus (props: any) {
     const [currentEditedOwnerName, setCurrentEditedOwnerNameState] = useState<string | null>(null)
     /** Client: sheets the host sent for this peer (by name). */
     const [receivedSheets, setReceivedSheetsState] = useState<CharacterData[]>([])
+    /** Host: when true, InitiativeTracker skips one sheet→combatant sync to avoid overwriting damage after we push combatant→sheet. */
+    const [skipNextSheetToCombatantSync, setSkipNextSheetToCombatantSync] = useState(false);
 
     const peerRef = useRef<Peer | null>(null);
     const connectionsRef = useRef<Array<DataConnection>>([]);
@@ -154,6 +210,52 @@ export function MessageBus (props: any) {
         currentEditedOwnerName,
       });
     }, [isHost, savedCharacters, messageLog, mapGrid, initiativeCombatants, userData, currentEditedOwnerName]);
+
+    // When initiative combatants change (e.g. damage/heal/SP on Iniciativa or Mapa), push HP/SP back to the source sheet so Personagem tab stays in sync. Only update when sheet actually differs to avoid update loops.
+    useEffect(() => {
+      if (!isHost || initiativeCombatants.length === 0) return;
+      const sheetDisplay = (s: { data: { sheetName?: string }; ownerName: string }) =>
+        (s.data.sheetName ?? "").trim() || s.ownerName;
+      const updates: { ownerName: string; wantSheet: string; newData: CharacterData; sheetData: CharacterData }[] = [];
+      initiativeCombatants.forEach((c) => {
+        if (!c.sourceOwnerName) return;
+        const wantSheet = (c.sourceSheetName ?? "").trim() || c.sourceOwnerName;
+        let sheetData: CharacterData | undefined;
+        const editedOwner = currentEditedOwnerNameRef.current;
+        const ud = userDataRef.current;
+        if (ud && editedOwner && editedOwner === c.sourceOwnerName) {
+          const editedSheetName = (ud.sheetName ?? "").trim() || editedOwner;
+          if (editedSheetName === wantSheet) sheetData = ud;
+        }
+        if (!sheetData) {
+          const saved = savedCharactersRef.current;
+          const entry = saved.find((s) => s.ownerName === c.sourceOwnerName && sheetDisplay(s) === wantSheet)
+            ?? (saved.filter((s) => s.ownerName === c.sourceOwnerName).length === 1 ? saved.find((s) => s.ownerName === c.sourceOwnerName) : null);
+          sheetData = entry?.data;
+        }
+        if (!sheetData || sheetMatchesCombatant(sheetData, c)) return;
+        const newData = applyCombatantToSheet(sheetData, c);
+        updates.push({ ownerName: c.sourceOwnerName!, wantSheet, newData, sheetData });
+      });
+      if (updates.length === 0) return;
+      setSkipNextSheetToCombatantSync(true);
+      setSavedCharactersState((prev) => {
+        let next = prev;
+        for (const { ownerName, wantSheet, newData } of updates) {
+          const rest = next.filter((s) => s.ownerName !== ownerName || sheetDisplay(s) !== wantSheet);
+          next = [...rest, { ownerName, data: newData }];
+        }
+        return next;
+      });
+      const ud = userDataRef.current;
+      for (const { sheetData, newData } of updates) {
+        if (sheetData === ud) {
+          setUserDataState(newData);
+          userDataRef.current = newData;
+          break;
+        }
+      }
+    }, [isHost, initiativeCombatants]);
 
     function clearConnectionTimeout() {
       if (connectionTimeoutRef.current) {
@@ -306,11 +408,11 @@ export function MessageBus (props: any) {
           setMapGridState(restored.mapGrid);
         }
         if (Array.isArray(restored.initiativeCombatants) && restored.initiativeCombatants.length > 0) {
-          setInitiativeCombatantsState(
-            restored.initiativeCombatants.filter(
-              (c) => c && typeof c === "object" && typeof c.id === "string" && typeof c.name === "string"
-            )
+          const list = restored.initiativeCombatants.filter(
+            (c) => c && typeof c === "object" && typeof c.id === "string" && typeof c.name === "string"
           );
+          setInitiativeCombatantsState(list);
+          initiativeCombatantsRef.current = list;
         }
         if (restored.userData && typeof restored.userData === "object" && typeof (restored.userData as CharacterData).stats === "object") {
           setUserDataState(restored.userData as CharacterData);
@@ -395,6 +497,24 @@ export function MessageBus (props: any) {
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
             if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) return;
             if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) return;
+            if (payload.metadata?.type === INITIATIVE_UPDATE_FROM_CLIENT) {
+              const list = payload.metadata?.data as InitiativeCombatant[] | undefined;
+              if (Array.isArray(list)) {
+                const normalized = list.map((c) => ({
+                  ...c,
+                  name: typeof c?.name === "string" ? c.name : (c?.id ?? ""),
+                }));
+                setSkipNextSheetToCombatantSync(true);
+                setInitiativeCombatantsState(normalized);
+                initiativeCombatantsRef.current = normalized;
+                const syncPayload = {
+                  metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: normalized.map((c) => ({ ...c })) },
+                  content: {},
+                } as LogData;
+                connectionsRef.current.forEach((c) => { if (c.open) c.send(syncPayload); });
+              }
+              return;
+            }
             if (payload.metadata?.type === USER_DATA_SYNC_TYPE) return;
             if (payload.metadata?.type === USER_SHEETS_SYNC_TYPE) return;
             if (payload.metadata?.type === REQUEST_INITIAL_SYNC_TYPE) {
@@ -575,8 +695,10 @@ export function MessageBus (props: any) {
                 name: typeof c?.name === "string" ? c.name : (c?.id ?? ""),
               }));
               setInitiativeCombatantsState(normalized);
+              initiativeCombatantsRef.current = normalized;
             } else {
               setInitiativeCombatantsState([]);
+              initiativeCombatantsRef.current = [];
             }
             return;
           }
@@ -697,19 +819,25 @@ export function MessageBus (props: any) {
     }
 
     function setInitiativeCombatants(listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) {
-      if (!isHost) return;
       const next = typeof listOrUpdater === "function"
         ? listOrUpdater(initiativeCombatantsRef.current)
         : listOrUpdater;
       setInitiativeCombatantsState(next);
       initiativeCombatantsRef.current = next;
-      const payload = {
-        metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: next.map((c) => ({ ...c })) },
-        content: {},
-      } as LogData;
-      connectionsRef.current.forEach((c) => {
-        if (c.open) c.send(payload);
-      });
+      if (isHost) {
+        const payload = {
+          metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: next.map((c) => ({ ...c })) },
+          content: {},
+        } as LogData;
+        connectionsRef.current.forEach((c) => {
+          if (c.open) c.send(payload);
+        });
+      } else if (conn?.open) {
+        conn.send({
+          metadata: { type: INITIATIVE_UPDATE_FROM_CLIENT, code: 0, sender: senderData!, data: next.map((c) => ({ ...c })) },
+          content: {},
+        } as LogData);
+      }
     }
 
     function setUserData(dataOrUpdater: CharacterData | null | ((prev: CharacterData | null) => CharacterData | null)) {
@@ -827,6 +955,8 @@ export function MessageBus (props: any) {
         currentEditedOwnerName,
         setCurrentEditedOwnerName,
         receivedSheets,
+        skipNextSheetToCombatantSync,
+        setSkipNextSheetToCombatantSync,
       }}>
         {contextHolder}
         {props.children}

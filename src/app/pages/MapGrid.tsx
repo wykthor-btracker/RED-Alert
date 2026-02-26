@@ -334,7 +334,7 @@ function CombatantHoverBars(props: {
         <div>
           <div style={labelStyle}>Cabeça</div>
           <div style={barTrackStyle}>
-            <div style={{ width: `${headSP * 100}%`, height: "100%", background: "#e67e22", borderRadius: 3 }} />
+            <div style={{ width: `${headSP * 100}%`, height: "100%", background: "#f1c40f", borderRadius: 3 }} />
           </div>
         </div>
       </div>

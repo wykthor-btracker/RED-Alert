@@ -43,6 +43,14 @@ export interface InitiativeCombatant {
   initiative?: number;
   /** IDs from CPR_CRITICAL_INJURIES (e.g. "broken-ribs") — synced with host. */
   criticalInjuries?: string[];
+  /** When added from a saved sheet: owner name so SP can be refreshed when sheet's equip changes. */
+  sourceOwnerName?: string;
+  /** When added from a saved sheet: sheet name (or owner) for matching. */
+  sourceSheetName?: string;
+  /** Name of the equipped body armor providing SP (for display in iniciativa). */
+  bodyArmorName?: string;
+  /** Name of the equipped helm providing head SP (for display in iniciativa). */
+  headArmorName?: string;
 }
 
 export interface MessageBusContextValue {
@@ -95,6 +103,10 @@ export interface MessageBusContextValue {
   setCurrentEditedOwnerName: (name: string | null) => void;
   /** Client only: list of sheets the host sent for this peer (by name match). Show list first, then open one. */
   receivedSheets: CharacterData[];
+  /** Host only: when true, InitiativeTracker should skip one sheet→combatant sync (avoids overwriting damage after combatant→sheet push). */
+  skipNextSheetToCombatantSync: boolean;
+  /** Host only: set skip flag. */
+  setSkipNextSheetToCombatantSync: (v: boolean) => void;
 }
 
 const defaultContextValue: MessageBusContextValue = {
@@ -132,6 +144,8 @@ const defaultContextValue: MessageBusContextValue = {
   currentEditedOwnerName: null,
   setCurrentEditedOwnerName: () => {},
   receivedSheets: [],
+  skipNextSheetToCombatantSync: false,
+  setSkipNextSheetToCombatantSync: () => {},
 };
 
 export const MessageBusContext = createContext<MessageBusContextValue>(defaultContextValue);

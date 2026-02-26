@@ -65,11 +65,12 @@ export default function Fighter(props: any) {
   
     function heal () {
       const amount = Number(value)
-      setStats({...stats,
-        currentHealth: Math.min(stats.currentHealth+amount,stats.maxHealth)})
+      const newHp = Math.min(stats.currentHealth + amount, stats.maxHealth)
+      setStats({ ...stats, currentHealth: newHp })
+      ;(props as { onHealthChange?: (id: string, current: number, max?: number) => void }).onHealthChange?.(props.item.id, newHp, stats.maxHealth)
       broadcastUpdate(`${stats.name} curou ${amount} de HP`)
-      }
-    
+    }
+
     function addShield () {
       const amount = Number(value)
       setShield(amount)
@@ -77,30 +78,31 @@ export default function Fighter(props: any) {
     }
     
     function damage () {
-      var val = Number(value)
+      const totalVal = Number(value)
       let msg: string
-      if(shield > val) {
-        setShield(Math.max(shield-Number(value),0))
-        msg = `${stats.name} tomou ${val} de dano (${val} no escudo)`
-      } else if(shield==val) {
+      if (shield > totalVal) {
+        setShield(Math.max(shield - totalVal, 0))
+        msg = `${stats.name} tomou ${totalVal} de dano (${totalVal} no escudo)`
+      } else if (shield === totalVal) {
         setShield(0)
-        msg = `${stats.name} tomou ${val} de dano (${val} no escudo)`
-      }
-      else {
-        val = val-shield
+        msg = `${stats.name} tomou ${totalVal} de dano (${totalVal} no escudo)`
+      } else {
+        const hpDamage = totalVal - shield
         setShield(0)
-        setStats({...stats,
-          currentHealth: Math.max(stats.currentHealth-(val),0)})
+        const newHp = Math.max(stats.currentHealth - hpDamage, 0)
+        setStats({ ...stats, currentHealth: newHp })
+        ;(props as { onHealthChange?: (id: string, current: number, max?: number) => void }).onHealthChange?.(props.item.id, newHp, stats.maxHealth)
         msg = shield > 0
-          ? `${stats.name} tomou ${Number(value)} de dano (${shield} no escudo, ${val} na vida)`
-          : `${stats.name} tomou ${val} de dano`
+          ? `${stats.name} tomou ${totalVal} de dano (${shield} no escudo, ${hpDamage} na vida)`
+          : `${stats.name} tomou ${hpDamage} de dano`
       }
       broadcastUpdate(msg)
     }
   
     function ablate () {
-      setStats({...stats,
-        stoppingPower: Math.max(stats.stoppingPower-1, 0)})
+      const newBody = Math.max(stats.stoppingPower - 1, 0)
+      setStats({ ...stats, stoppingPower: newBody })
+      props.onStoppingPowerChange?.(props.item.id, newBody, stats.stoppingPowerMax)
       broadcastUpdate(`${stats.name}: SP corpo reduzido em 1`)
     }
   
@@ -112,8 +114,9 @@ export default function Fighter(props: any) {
       broadcastUpdate(`${stats.name}: SP corpo definido para ${val}`)
     }
     function ablateHead () {
-      setStats({...stats,
-        stoppingPowerHead: Math.max(stats.stoppingPowerHead-1, 0)})
+      const newHead = Math.max(stats.stoppingPowerHead - 1, 0)
+      setStats({ ...stats, stoppingPowerHead: newHead })
+      props.onStoppingPowerHeadChange?.(props.item.id, newHead, stats.stoppingPowerHeadMax)
       broadcastUpdate(`${stats.name}: SP cabeça reduzido em 1`)
     }
   
@@ -193,7 +196,7 @@ export default function Fighter(props: any) {
                 )}
               </Row>
             </Col>
-            <Col span={12}>
+            <Col span={12} data-testid="fighter-hp">
               <span>
                 HP: <span style={{fontWeight: "bold"}}>
                   {stats.currentHealth/stats.maxHealth<=0.5 
@@ -211,10 +214,22 @@ export default function Fighter(props: any) {
             <Col span={12}>
               <Row>
                 <Col span={12}>
-                  SP Cabeça: {stats.stoppingPowerHead}<Progress showInfo={false} strokeColor={"orange"} percent={(stats.stoppingPowerHead/stats.stoppingPowerHeadMax)*100}/>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <span>SP Cabeça: {stats.stoppingPowerHead}</span>
+                    {(props.item as { headArmorName?: string }).headArmorName && (
+                      <span style={{ textAlign: "right", color: "#666", fontSize: 12 }}>{(props.item as { headArmorName?: string }).headArmorName}</span>
+                    )}
+                  </div>
+                  <Progress showInfo={false} strokeColor={"orange"} percent={(stats.stoppingPowerHead/stats.stoppingPowerHeadMax)*100}/>
                 </Col>
                 <Col span={12}>
-                  SP Corpo: {stats.stoppingPower}<Progress showInfo={false} strokeColor={"orange"} percent={(stats.stoppingPower/stats.stoppingPowerMax)*100}/>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <span>SP Corpo: {stats.stoppingPower}</span>
+                    {(props.item as { bodyArmorName?: string }).bodyArmorName && (
+                      <span style={{ textAlign: "right", color: "#666", fontSize: 12 }}>{(props.item as { bodyArmorName?: string }).bodyArmorName}</span>
+                    )}
+                  </div>
+                  <Progress showInfo={false} strokeColor={"orange"} percent={(stats.stoppingPower/stats.stoppingPowerMax)*100}/>
                 </Col>
               </Row>
             </Col>
@@ -230,7 +245,7 @@ export default function Fighter(props: any) {
                   <Button style={{width: 100}} onClick={addShield}>Escudo</Button>
                 </Col>
                 <Col span={3}>
-                  <Input onChange={(event)=>setValue(event.target.value)} value={value}></Input>
+                  <Input data-testid="fighter-damage-input" onChange={(event)=>setValue(event.target.value)} value={value}></Input>
                 </Col>
                 <Col span={12}>
                   <Row gutter={8}>

@@ -23,10 +23,16 @@ export interface InventoryEntry {
   notes?: string;
   /** For wearables that are armor/helm: whether currently equipped (affects sheet SP). */
   equipped?: boolean;
-  /** Manual override for body stopping power when equipped (armor). */
+  /** Manual override for body stopping power when equipped (armor). Max SP. */
   stoppingPowerBody?: number;
-  /** Manual override for head stopping power when equipped (helm). */
+  /** Manual override for head stopping power when equipped (helm). Max SP. */
   stoppingPowerHead?: number;
+  /** Current body SP (e.g. after damage); when unset, treated as equal to stoppingPowerBody. */
+  currentSPBody?: number;
+  /** Current head SP (e.g. after damage); when unset, treated as equal to stoppingPowerHead. */
+  currentSPHead?: number;
+  /** For custom wearables: treat as armor or helm so they appear in the right section and contribute to sheet SP. */
+  equipmentKind?: "armor" | "helm";
 }
 
 /** Installed cyberware. */
@@ -117,24 +123,46 @@ export interface WearableRefForSP {
   stoppingPowerHead?: number;
 }
 
-/** Compute body and head stopping power from sheet's equipped armor/helm. */
+/** Result of getSheetStoppingPower: current/max SP and names of equipped armor/helm. */
+export interface SheetStoppingPowerResult {
+  body: number;
+  bodyMax: number;
+  head: number;
+  headMax: number;
+  /** Name of the equipped armor (body), if any. */
+  bodyArmorName?: string;
+  /** Name of the equipped helm (head), if any. */
+  headArmorName?: string;
+}
+
+/** Compute body and head stopping power from sheet's equipped armor/helm (current and max), and their names. */
 export function getSheetStoppingPower(
   data: CharacterData,
   refWearables: WearableRefForSP[]
-): { body: number; bodyMax: number; head: number; headMax: number } {
+): SheetStoppingPowerResult {
   let body = 0;
+  let bodyMax = 0;
   let head = 0;
+  let headMax = 0;
+  let bodyArmorName: string | undefined;
+  let headArmorName: string | undefined;
   for (const w of data.wearables ?? []) {
-    if (!w.equipped || !w.referenceId) continue;
-    const ref = refWearables.find((r) => r.id === w.referenceId);
-    if (!ref) continue;
-    if (ref.equipmentKind === "armor") {
-      const sp = w.stoppingPowerBody ?? ref.stoppingPower ?? 0;
-      body += sp;
-    } else if (ref.equipmentKind === "helm") {
-      const sp = w.stoppingPowerHead ?? ref.stoppingPowerHead ?? ref.stoppingPower ?? 0;
-      head += sp;
+    if (!w.equipped) continue;
+    const kind = w.equipmentKind ?? refWearables.find((r) => r.id === w.referenceId)?.equipmentKind;
+    if (kind === "armor") {
+      const maxSp = w.stoppingPowerBody ?? refWearables.find((r) => r.id === w.referenceId)?.stoppingPower ?? 0;
+      const currentSp = w.currentSPBody ?? w.stoppingPowerBody ?? maxSp;
+      body += currentSp;
+      bodyMax += maxSp;
+      bodyArmorName = w.name;
+    } else if (kind === "helm") {
+      const ref = refWearables.find((r) => r.id === w.referenceId);
+      const maxSp = w.stoppingPowerHead ?? ref?.stoppingPowerHead ?? ref?.stoppingPower ?? 0;
+      const currentSp = w.currentSPHead ?? w.stoppingPowerHead ?? maxSp;
+      head += currentSp;
+      headMax += maxSp;
+      headArmorName = w.name;
     }
   }
-  return { body, bodyMax: body, head, headMax: head };
+  return { body, bodyMax, head, headMax, bodyArmorName, headArmorName };
 }
