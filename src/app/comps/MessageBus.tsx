@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
+import { InitiativeCombatant, LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
 import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
 
@@ -8,6 +8,7 @@ const KEEPALIVE_INTERVAL_MS = 25_000;
 const KEEPALIVE_TYPE = "keepalive";
 const SYNC_TYPE = "sync";
 const MAP_GRID_SYNC_TYPE = "mapGridSync";
+const INITIATIVE_SYNC_TYPE = "initiativeSync";
 
 function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -41,6 +42,7 @@ export function MessageBus (props: any) {
         name: `Player ${randomKey}`,
     })
     const [mapGrid, setMapGridState] = useState<MapGridState | null>(null)
+    const [initiativeCombatants, setInitiativeCombatantsState] = useState<InitiativeCombatant[]>([])
 
     const peerRef = useRef<Peer | null>(null);
     const connectionsRef = useRef<Array<DataConnection>>([]);
@@ -48,10 +50,12 @@ export function MessageBus (props: any) {
     const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const mapGridRef = useRef<MapGridState | null>(null);
+    const initiativeCombatantsRef = useRef<InitiativeCombatant[]>([]);
 
     connectionsRef.current = connections;
     connectionDisplayNamesRef.current = connectionDisplayNames;
     mapGridRef.current = mapGrid;
+    initiativeCombatantsRef.current = initiativeCombatants;
 
     function clearKeepaliveInterval() {
       if (keepaliveIntervalRef.current) {
@@ -267,12 +271,16 @@ export function MessageBus (props: any) {
             const grid = mapGridRef.current;
             if (grid && connPeer.open)
               connPeer.send({ metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData, data: grid }, content: {} });
+            const initiative = initiativeCombatantsRef.current;
+            if (initiative.length > 0 && connPeer.open)
+              connPeer.send({ metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData, data: initiative }, content: {} });
           }, 0);
 
           connPeer.on("data", (data) => {
             const payload = data as LogData;
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
             if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) return;
+            if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) return;
             if (payload.metadata?.type === "displayName") {
               const name = payload.metadata?.data?.name as string | undefined;
               if (name != null) {
@@ -410,6 +418,11 @@ export function MessageBus (props: any) {
               else if (grid === null) setMapGridState(null);
               return;
             }
+            if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) {
+              const list = payload.metadata?.data as InitiativeCombatant[] | undefined;
+              setInitiativeCombatantsState(Array.isArray(list) ? list : []);
+              return;
+            }
             setMessageLog((prev) => [...prev, { ...payload, id: payload.id ?? nextId() }]);
           });
           clearKeepaliveInterval()
@@ -501,6 +514,19 @@ export function MessageBus (props: any) {
       });
     }
 
+    function setInitiativeCombatants(list: InitiativeCombatant[]) {
+      if (!isHost) return;
+      setInitiativeCombatantsState(list);
+      initiativeCombatantsRef.current = list;
+      const payload = {
+        metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: list },
+        content: {},
+      } as LogData;
+      connectionsRef.current.forEach((c) => {
+        if (c.open) c.send(payload);
+      });
+    }
+
     return <>
       <MessageBusContext.Provider value={{
         messageLog,
@@ -526,6 +552,8 @@ export function MessageBus (props: any) {
         isHost,
         mapGrid,
         setMapGrid,
+        initiativeCombatants,
+        setInitiativeCombatants,
       }}>
         {contextHolder}
         {props.children}

@@ -25,6 +25,19 @@ export interface MapGridState {
   cols: number;
   /** cells[row][col] = initiative combatant id or null when battle is underway */
   cells: (string | null)[][];
+  /** Host-painted cover cells: key "row,col" => optional health for destructible cover. */
+  coverCells?: Record<string, { health?: number }>;
+}
+
+/** Combatant from Iniciativa; synced from host for map and damage/armor actions. */
+export interface InitiativeCombatant {
+  id: string;
+  name: string;
+  currentHealth?: number;
+  maxHealth?: number;
+  stoppingPower?: number;
+  stoppingPowerMax?: number;
+  initiative?: number;
 }
 
 export interface MessageBusContextValue {
@@ -55,6 +68,10 @@ export interface MessageBusContextValue {
   mapGrid: MapGridState | null;
   /** Host only: set grid dimensions/cells and broadcast to all connected nodes. */
   setMapGrid: (state: MapGridState | null) => void;
+  /** Combatants from Iniciativa tab (id + name); host syncs to clients for map display. */
+  initiativeCombatants: InitiativeCombatant[];
+  /** Host only: set initiative list and broadcast to clients. */
+  setInitiativeCombatants: (list: InitiativeCombatant[]) => void;
 }
 
 const defaultContextValue: MessageBusContextValue = {
@@ -81,6 +98,8 @@ const defaultContextValue: MessageBusContextValue = {
   isHost: false,
   mapGrid: null,
   setMapGrid: () => {},
+  initiativeCombatants: [],
+  setInitiativeCombatants: () => {},
 };
 
 export const MessageBusContext = createContext<MessageBusContextValue>(defaultContextValue);

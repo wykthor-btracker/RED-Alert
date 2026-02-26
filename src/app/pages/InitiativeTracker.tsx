@@ -1,10 +1,22 @@
 import { Button, Col, FloatButton, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import QueueAnim from "rc-queue-anim";
-import { useContext, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import Fighter from "../comps/Fighter";
-import { LogData, MessageBusContext } from "../contexts/MessageBusContext";
+import { InitiativeCombatant, LogData, MessageBusContext } from "../contexts/MessageBusContext";
 const { Title } = Typography;
+
+function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; initiative: number } {
+  return {
+    id: c.id,
+    name: c.name,
+    currentHealth: c.currentHealth ?? 0,
+    maxHealth: c.maxHealth ?? 0,
+    stoppingPower: c.stoppingPower ?? 0,
+    stoppingPowerMax: c.stoppingPowerMax ?? 0,
+    initiative: c.initiative ?? 0,
+  };
+}
 
 function DraggableFighter(props: {
   item: { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; initiative: number };
@@ -175,8 +187,8 @@ export default function InitiativeTracker(props: any) {
       stoppingPowerMax: number;
       initiative: number;
     }
-    const { send, senderData } = useContext(MessageBusContext)
-    const [data, setData]               = useState<Array<Idata>>([])
+    const { send, senderData, isHost, initiativeCombatants, setInitiativeCombatants } = useContext(MessageBusContext)
+    const data = useMemo(() => initiativeCombatants.map(toIdata), [initiativeCombatants])
     const [toggleForm, setToggleForm]   = useState(false)
     const [currentTurnId, setCurrentTurnId] = useState<string | null>(null)
     const [tracking, setTracking]       = useState(false)
@@ -226,53 +238,45 @@ export default function InitiativeTracker(props: any) {
       broadcastUpdate(`Iniciativa: voltou para ${data[prevIdx].name}`)
     }
     const onFinish: FormProps<FieldType>['onFinish'] = (values) => {
-      setData((prev) => {
-        const next = [...prev, {
+      const next: InitiativeCombatant[] = [...initiativeCombatants, {
+        id: nextId(),
+        name: values.name,
+        currentHealth: Number(values.health),
+        maxHealth: Number(values.health),
+        stoppingPower: Number(values.SP),
+        stoppingPowerMax: Number(values.SP),
+        initiative: 0,
+      }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
+      setInitiativeCombatants(next)
+      broadcastUpdate(`Iniciativa: combatente adicionado — ${values.name}`)
+    };
+    function addNPC (values: any) {
+        const initRoll = Math.floor(Math.random() * 10) + 1
+        const next: InitiativeCombatant[] = [...initiativeCombatants, {
           id: nextId(),
           name: values.name,
           currentHealth: Number(values.health),
           maxHealth: Number(values.health),
           stoppingPower: Number(values.SP),
           stoppingPowerMax: Number(values.SP),
-          initiative: 0,
-        }]
-        return next.sort((a, b) => b.initiative - a.initiative)
-      })
-      broadcastUpdate(`Iniciativa: combatente adicionado — ${values.name}`)
-    };
-    function addNPC (values: any) {
-        const initRoll = Math.floor(Math.random() * 10) + 1
-        setData((prev) => {
-          const next = [...prev, {
-            id: nextId(),
-            name: values.name,
-            currentHealth: Number(values.health),
-            maxHealth: Number(values.health),
-            stoppingPower: Number(values.SP),
-            stoppingPowerMax: Number(values.SP),
-            initiative: initRoll,
-          }]
-          return next.sort((a, b) => b.initiative - a.initiative)
-        })
+          initiative: initRoll,
+        }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
+        setInitiativeCombatants(next)
         broadcastUpdate(`Iniciativa: combatente adicionado — ${values.name}`)
     }
     function onInitiativeChange(id: string, value: number) {
       const intValue = Math.round(Number(value)) || 0
-      setData((prev) => {
-        const next = prev.map((d) =>
-          d.id === id ? { ...d, initiative: intValue } : d
-        )
-        return next.sort((a, b) => b.initiative - a.initiative)
-      })
+      const next = initiativeCombatants.map((d) =>
+        d.id === id ? { ...d, initiative: intValue } : d
+      ).sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
+      setInitiativeCombatants(next)
     }
     function moveCombatant(fromIndex: number, toIndex: number) {
       if (fromIndex === toIndex || toIndex < 0 || toIndex >= data.length) return
-      setData((prev) => {
-        const next = [...prev]
-        const [removed] = next.splice(fromIndex, 1)
-        next.splice(toIndex, 0, removed)
-        return next
-      })
+      const next = [...initiativeCombatants]
+      const [removed] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, removed)
+      setInitiativeCombatants(next)
     }
     const onFinishFailed: FormProps<FieldType>['onFinishFailed'] = (errorInfo) => {
       console.log('Failed:', errorInfo);
@@ -285,7 +289,7 @@ export default function InitiativeTracker(props: any) {
               <Col>
                 <Button 
                   onClick={()=>{
-                    setData([])
+                    setInitiativeCombatants([])
                     setCurrentTurnId(null)
                     broadcastUpdate("Iniciativa: batalha limpa")
                   }}
