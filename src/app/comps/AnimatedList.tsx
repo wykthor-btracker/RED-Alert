@@ -1,38 +1,57 @@
-import { animated, useTrail } from "@react-spring/web";
 import { LogData } from "../contexts/MessageBusContext";
 import { Avatar, Col, Row, Typography } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
+import { Button, Tag } from "antd";
 
-export function AnimatedList(props: {list: LogData[]}) {
-    const filteredList = props.list.filter((item)=>item.metadata.code==2)
-    const trail = useTrail(filteredList.length, {
-      from: { opacity: 0},
-      to: { opacity: 1},
-      duration: 2000, // Customize the animation duration
-    });
-  
+export function AnimatedList(props: {
+  list: LogData[];
+  isHost?: boolean;
+  onDeleteMessage?: (id: string) => void;
+}) {
+    const filteredList = props.list.filter((item) => item.metadata?.code === 2);
+
     return (
       <div>
-        {trail.map((cprops, index) => (
-          <animated.div key={index} style={cprops}>
-            <Row gutter={[8,8]}>
-              <Col>
-                <Avatar src={filteredList[index].metadata.sender.avatar}/>
-              </Col>
-              <Col span={23}>
-                <Col>
-                  <Typography.Text strong>
-                    {filteredList[index].metadata.sender.name}
-                  </Typography.Text>
+        {filteredList.map((item, index) => {
+          const isDirect = item.metadata?.type === "direct";
+          const targetName = item.metadata?.data?.targetName;
+          return (
+            <div key={item.id ?? index}>
+              <Row gutter={[8, 8]} align="middle" style={{ flexWrap: "nowrap" }}>
+                <Col flex="none">
+                  <Avatar src={item.metadata.sender.avatar} />
                 </Col>
-                <Col>
-                  <Typography.Text type={"secondary"}>
-                    {filteredList[index].content.message}
-                  </Typography.Text>
+                <Col flex="1" style={{ minWidth: 0 }}>
+                  <div>
+                    <Typography.Text strong>
+                      {item.metadata.sender.name}
+                      {isDirect && targetName && (
+                        <Tag color="blue" style={{ marginLeft: 6 }}>DM para {targetName}</Tag>
+                      )}
+                    </Typography.Text>
+                  </div>
+                  <div>
+                    <Typography.Text type="secondary">
+                      {item.content.message}
+                    </Typography.Text>
+                  </div>
                 </Col>
-              </Col>
-            </Row>
-          </animated.div>
-        ))}
+                {props.isHost && props.onDeleteMessage && item.id && (
+                  <Col flex="none">
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => props.onDeleteMessage!(item.id!)}
+                      title="Excluir mensagem"
+                    />
+                  </Col>
+                )}
+              </Row>
+            </div>
+          );
+        })}
       </div>
     );
   }

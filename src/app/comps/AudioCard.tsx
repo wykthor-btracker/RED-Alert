@@ -11,12 +11,12 @@ export default function AudioCard(props: any) {
     const [value, setValue] = useState(50);
 
     useEffect(()=>{
-      let lastMessage = messageLog[messageLog.length-1]
-      if(lastMessage.metadata.code == 10) {
-        if(lastMessage.content.message == props.title && 
-          lastMessage.metadata.data.target == senderData?.name) {
-            song.togglePlayPause()
-          }
+      if (messageLog.length === 0) return
+      const lastMessage = messageLog[messageLog.length - 1]
+      if (lastMessage?.metadata?.code === 10 &&
+          lastMessage.content?.message === props.title &&
+          lastMessage.metadata?.data?.target === senderData?.name) {
+        song.togglePlayPause()
       }
     },[messageLog])
     const style: React.CSSProperties = { 

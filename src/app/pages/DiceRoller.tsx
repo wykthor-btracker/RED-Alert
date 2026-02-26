@@ -46,7 +46,7 @@ export default function DiceRoller (props: any) {
             }
         } else {
             if(toRoll == 1) {
-                message = `${toRoll}d${size} = ${toString} ${crits ? ", CRIT!": ""}`
+                message = `${toRoll}d${size} = ${toString} ${crits ? ", CRÍT!": ""}`
             }
             message = `${toRoll}d${size} = ${toString}, ${crits} críticos! ${crits ? "💥": ""}`
         }

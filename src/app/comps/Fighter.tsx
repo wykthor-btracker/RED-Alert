@@ -1,7 +1,18 @@
 import { Badge, Button, Col, Input, InputNumber, List, Progress, Row, Tooltip } from "antd";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { LogData, MessageBusContext } from "../contexts/MessageBusContext";
 
 export default function Fighter(props: any) {
+    const { send, senderData } = useContext(MessageBusContext)
+
+    function broadcastUpdate(message: string) {
+      if (send && senderData) {
+        send({
+          content: { message },
+          metadata: { sender: senderData, type: "message", code: 2, data: {} },
+        } as LogData)
+      }
+    }
     const style: React.CSSProperties = {
       padding: '16px 8px',
       borderRadius: 10,
@@ -27,45 +38,61 @@ export default function Fighter(props: any) {
     },[props.currentTurn])
   
     function heal () {
+      const amount = Number(value)
       setStats({...stats,
-        currentHealth: Math.min(stats.currentHealth+Number(value),stats.maxHealth)})
+        currentHealth: Math.min(stats.currentHealth+amount,stats.maxHealth)})
+      broadcastUpdate(`${stats.name} curou ${amount} de HP`)
       }
     
     function addShield () {
-      setShield(Number(value))
+      const amount = Number(value)
+      setShield(amount)
+      broadcastUpdate(`${stats.name} ganhou ${amount} de escudo`)
     }
     
     function damage () {
       var val = Number(value)
+      let msg: string
       if(shield > val) {
         setShield(Math.max(shield-Number(value),0))
+        msg = `${stats.name} tomou ${val} de dano (${val} no escudo)`
       } else if(shield==val) {
         setShield(0)
+        msg = `${stats.name} tomou ${val} de dano (${val} no escudo)`
       }
       else {
         val = val-shield
         setShield(0)
         setStats({...stats,
           currentHealth: Math.max(stats.currentHealth-(val),0)})
-      }}
+        msg = shield > 0
+          ? `${stats.name} tomou ${Number(value)} de dano (${shield} no escudo, ${val} na vida)`
+          : `${stats.name} tomou ${val} de dano`
+      }
+      broadcastUpdate(msg)
+    }
   
     function ablate () {
       setStats({...stats,
         stoppingPower: Math.max(stats.stoppingPower-1, 0)})
+      broadcastUpdate(`${stats.name}: SP corpo reduzido em 1`)
     }
   
     function resetStoppingPower () {
       setStats({...stats,
         stoppingPower: stats.stoppingPowerMax})
+      broadcastUpdate(`${stats.name}: SP corpo resetado para ${stats.stoppingPowerMax}`)
     }
     function ablateHead () {
       setStats({...stats,
         stoppingPowerHead: Math.max(stats.stoppingPowerHead-1, 0)})
+      broadcastUpdate(`${stats.name}: SP cabeça reduzido em 1`)
     }
   
     function resetStoppingPowerHead () {
       setStats({...stats,
         stoppingPowerHead: stats.stoppingPowerHeadMax})
+      broadcastUpdate(`${stats.name}: SP cabeça resetado para ${stats.stoppingPowerHeadMax}`)
     }
     return (
       <Badge.Ribbon color="red" text={props.currentTurn == props.index ? "Sua vez!" : ""}>

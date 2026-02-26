@@ -6,10 +6,15 @@ import Peer, { DataConnection } from "peerjs";
 const CONNECTION_TIMEOUT_MS = 15000;
 const KEEPALIVE_INTERVAL_MS = 25_000;
 const KEEPALIVE_TYPE = "keepalive";
+const SYNC_TYPE = "sync";
+
+function nextId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export function MessageBus (props: any) {
     const [messageLog, setMessageLog]   = useState<Array<LogData>>([
-      {content: {message: "Teste!"},
+      { id: nextId(), content: {message: "Teste!"},
       metadata: {
         sender: {
           avatar: `https://api.dicebear.com/9.x/rings/svg?seed=maestro`,
@@ -25,6 +30,7 @@ export function MessageBus (props: any) {
     const [ID, setID]                   = useState<string>("")
     const [isHost, setIsHost]           = useState(false)
     const [connections, setConnections] = useState<Array<DataConnection>>([])
+    const [peerList, setPeerList] = useState<string[]>([])
     const [connected, setConnected]     = useState(false)
     const randomKey                     = Math.floor(Math.random()*100)
     const [senderData, setSenderData]   = useState<LogDataMetadataSenderData>({
@@ -81,16 +87,110 @@ export function MessageBus (props: any) {
 
     function send (data: LogData) {
       if (isHost) {
-        setMessageLog(prev => [...prev, data]);
-        const currentConnections = connectionsRef.current;
-        for (let i = 0; i < currentConnections.length; i++) {
-          const c = currentConnections[i];
-          if (c.open) c.send(data);
+        const withId = { ...data, id: data.id ?? nextId() };
+        if (data.metadata?.type === "direct") {
+          setMessageLog(prev => [...prev, withId]);
+          const target = connectionsRef.current.find(
+            (c) => (c.metadata?.label ?? c.peer) === data.metadata?.data?.targetName
+          );
+          if (target?.open) target.send(withId);
+        } else {
+          broadcast(withId);
         }
       } else if (conn?.open) {
-        sendToLog(data)
+        sendToLog(data);
       } else {
-        messageApi.error("Não estamos conectados em ninguém, parsa!")
+        messageApi.error("Não estamos conectados em ninguém, parsa!");
+      }
+    }
+
+    function sendDirect(targetName: string, messageText: string) {
+      if (!senderData) return;
+      send({
+        content: { message: messageText },
+        metadata: {
+          sender: senderData,
+          type: "direct",
+          code: 2,
+          data: { targetName },
+        },
+      } as LogData);
+    }
+
+    function clearMessageLog() {
+      if (!isHost) return;
+      setMessageLog([]);
+      const syncPayload = {
+        metadata: { type: SYNC_TYPE, code: 0, sender: senderData!, data: { action: "replace", log: [] } },
+        content: {},
+      };
+      connectionsRef.current.forEach((c) => { if (c.open) c.send(syncPayload); });
+      // Resend peer list so clients (and host UI) keep the connected-players list visible
+      const labels = connectionsRef.current.map((c) => (c.metadata?.label as string) || c.peer || "").filter(Boolean);
+      connectionsRef.current.forEach((c) => {
+        if (c.open) c.send({ metadata: { type: "peerList", code: 0, sender: senderData!, data: { peers: labels } }, content: {} });
+      });
+    }
+
+    function deleteMessage(id: string) {
+      if (!isHost) return;
+      setMessageLog((prev) => prev.filter((m) => m.id !== id));
+      const syncPayload = {
+        metadata: { type: SYNC_TYPE, code: 0, sender: senderData!, data: { action: "delete", id } },
+        content: {},
+      };
+      connectionsRef.current.forEach((c) => { if (c.open) c.send(syncPayload); });
+    }
+
+    function replaceMessageLog(log: LogData[]) {
+      if (!isHost) return;
+      const withIds = log.map((m) => ({ ...m, id: m.id ?? nextId() }));
+      setMessageLog(withIds);
+      const syncPayload = {
+        metadata: { type: SYNC_TYPE, code: 0, sender: senderData!, data: { action: "replace", log: withIds } },
+        content: {},
+      };
+      connectionsRef.current.forEach((c) => { if (c.open) c.send(syncPayload); });
+    }
+
+    function exportLog(): string {
+      return JSON.stringify(messageLog, null, 2);
+    }
+
+    function importLog(json: string) {
+      if (!isHost) return;
+      const raw = (json ?? "").replace(/^\uFEFF/, "").trim();
+      if (!raw) {
+        messageApi?.error("Ficheiro vazio.");
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        const arr: LogData[] = Array.isArray(parsed)
+          ? parsed
+          : (parsed && typeof parsed === "object" && Array.isArray((parsed as { log?: LogData[] }).log))
+            ? (parsed as { log: LogData[] }).log
+            : [];
+        if (arr.length === 0 && !Array.isArray(parsed)) {
+          messageApi?.error("JSON inválido: esperado um array ou objeto com 'log'.");
+          return;
+        }
+        const normalized = arr.map((m) => ({
+          ...m,
+          id: m?.id ?? nextId(),
+          content: m?.content ?? {},
+          metadata: {
+            ...(m?.metadata ?? {}),
+            code: (m?.metadata as { code?: number })?.code ?? 2,
+            type: (m?.metadata as { type?: string })?.type ?? "message",
+            sender: (m?.metadata as { sender?: LogDataMetadataSenderData })?.sender ?? { avatar: "", name: "" },
+            data: (m?.metadata as { data?: object })?.data ?? {},
+          },
+        })) as LogData[];
+        replaceMessageLog(normalized);
+        messageApi?.success(`Log importado: ${normalized.length} mensagem(ns).`);
+      } catch (err) {
+        messageApi?.error("JSON inválido: " + (err instanceof Error ? err.message : String(err)));
       }
     }
 
@@ -129,7 +229,8 @@ export function MessageBus (props: any) {
           setConnections(prev => [...prev, connPeer])
 
           const messageReport = {
-            content: {message: "New connection!"},
+            id: nextId(),
+            content: { message: "Nova conexão!" },
             metadata: {
               type: "Connection",
               code: 1,
@@ -137,22 +238,48 @@ export function MessageBus (props: any) {
               sender: {
                 avatar: connPeer.metadata?.avatar,
                 name: connPeer.metadata?.label,
-              }
-            }
-          } as LogData
-          setMessageLog(prev => [...prev, messageReport])
+              },
+            },
+          } as LogData;
+          setMessageLog(prev => [...prev, messageReport]);
+
+          function sendPeerListToAll(conns: DataConnection[]) {
+            const labels = conns.map((c) => (c.metadata?.label as string) || c.peer || "").filter(Boolean);
+            conns.forEach((c) => {
+              if (c.open) c.send({ metadata: { type: "peerList", code: 0, sender: senderData, data: { peers: labels } }, content: {} });
+            });
+          }
+          setTimeout(() => sendPeerListToAll([...connectionsRef.current, connPeer]), 0);
 
           connPeer.on("data", (data) => {
             const payload = data as LogData;
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
-            broadcast(payload);
-          })
+            const withId = { ...payload, id: payload.id ?? nextId() };
+            if (payload.metadata?.type === "direct") {
+              connPeer.send(withId);
+              const targetName = payload.metadata?.data?.targetName;
+              const target = connectionsRef.current.find(
+                (c) => (c.metadata?.label ?? c.peer) === targetName
+              );
+              if (target?.open && target !== connPeer) target.send(withId);
+            } else {
+              broadcast(withId);
+            }
+          });
           connPeer.on("close", () => {
-            setConnections(prev => prev.filter(c => c !== connPeer));
-          })
+            setConnections(prev => {
+              const next = prev.filter(c => c !== connPeer);
+              setTimeout(() => sendPeerListToAll(next), 0);
+              return next;
+            });
+          });
           connPeer.on("error", () => {
-            setConnections(prev => prev.filter(c => c !== connPeer));
-          })
+            setConnections(prev => {
+              const next = prev.filter(c => c !== connPeer);
+              setTimeout(() => sendPeerListToAll(next), 0);
+              return next;
+            });
+          });
         })
       })
     }
@@ -220,10 +347,20 @@ export function MessageBus (props: any) {
           setConn(dataConn)
           setConnected(true)
           dataConn.on("data", (data: any) => {
-            const payload = data as LogData
-            if (payload.metadata?.type === KEEPALIVE_TYPE) return
-            setMessageLog(prev => [...prev, payload])
-          })
+            const payload = data as LogData;
+            if (payload.metadata?.type === KEEPALIVE_TYPE) return;
+            if (payload.metadata?.type === SYNC_TYPE) {
+              const d = payload.metadata?.data;
+              if (d?.action === "replace" && Array.isArray(d.log)) setMessageLog(d.log);
+              if (d?.action === "delete" && d?.id) setMessageLog((prev) => prev.filter((m) => m.id !== d.id));
+              return;
+            }
+            if (payload.metadata?.type === "peerList") {
+              setPeerList(payload.metadata?.data?.peers ?? []);
+              return;
+            }
+            setMessageLog((prev) => [...prev, { ...payload, id: payload.id ?? nextId() }]);
+          });
           clearKeepaliveInterval()
           keepaliveIntervalRef.current = setInterval(() => {
             if (peerRef.current !== peer || !dataConn.open) {
@@ -258,13 +395,12 @@ export function MessageBus (props: any) {
     }
 
     function broadcast(data: LogData) {
-      setMessageLog(prev => [...prev, data]);
+      const withId = { ...data, id: data.id ?? nextId() };
+      setMessageLog(prev => [...prev, withId]);
       const currentConnections = connectionsRef.current;
       for (let connIndex = 0; connIndex < currentConnections.length; connIndex++) {
         const element = currentConnections[connIndex];
-        if (element.open) {
-          element.send(data);
-        }
+        if (element.open) element.send(withId);
       }
     }
 
@@ -274,10 +410,31 @@ export function MessageBus (props: any) {
       }
     }
 
+    const connectionLabels = isHost
+      ? connections.map((c) => (c.metadata?.label as string) || c.peer || "").filter(Boolean)
+      : peerList;
+
+    const connectionSenders: LogDataMetadataSenderData[] = isHost
+      ? connections
+          .map((c) => ({
+            avatar: (c.metadata?.avatar as string) ?? "",
+            name: (c.metadata?.label as string) || c.peer || "",
+          }))
+          .filter((p) => p.name)
+      : peerList.map((label) => ({ avatar: "", name: label }));
+
     return <>
       <MessageBusContext.Provider value={{
         messageLog,
         send,
+        sendDirect,
+        connectionLabels,
+        connectionSenders,
+        clearMessageLog,
+        deleteMessage,
+        replaceMessageLog,
+        exportLog,
+        importLog,
         host,
         node,
         disconnect,
@@ -287,7 +444,7 @@ export function MessageBus (props: any) {
         contextHolder,
         senderData,
         ID,
-        isHost
+        isHost,
       }}>
         {contextHolder}
         {props.children}

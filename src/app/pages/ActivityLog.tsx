@@ -1,8 +1,8 @@
 import { useContext, useEffect, useRef, useState } from "react"
 import { LogData, LogDataMetadataSenderData, MessageBusContext } from "../contexts/MessageBusContext"
-import { Avatar, Badge, Button, Col, Divider, Dropdown, Flex, Input, InputRef, List, MenuProps, Row } from "antd"
+import { Avatar, Badge, Button, Col, Divider, Dropdown, Flex, Input, InputRef, List, MenuProps, Row, Select } from "antd"
 import DiceRoller from "./DiceRoller"
-import { ArrowRightOutlined, DownOutlined, UpOutlined } from "@ant-design/icons"
+import { ArrowRightOutlined, DeleteOutlined, DownOutlined, ExportOutlined, ImportOutlined, UpOutlined } from "@ant-design/icons"
 import { AnimatedList } from "../comps/AnimatedList"
 
 function alertPlayer (
@@ -93,13 +93,28 @@ function PlayerAlertMenu (props: any) {
 }
 
 export function ActivityLog (props: any) {
-    const {messageLog, senderData,
-      send, isHost, connections}    = useContext(MessageBusContext)
+    const {
+      messageLog,
+      senderData,
+      send,
+      sendDirect,
+      connectionLabels,
+      connectionSenders,
+      clearMessageLog,
+      deleteMessage,
+      exportLog,
+      importLog,
+      isHost,
+      connected,
+      connections,
+    } = useContext(MessageBusContext)
     const [inputText, setInputText] = useState("")
     const [chatCollapsed, setChatCollapsed] = useState(false)
     const [lastSeenCount, setLastSeenCount] = useState(0)
-    const ref                       = useRef<HTMLDivElement>(null)
-    const inputRef                  = useRef<InputRef>(null)
+    const [dmTarget, setDmTarget] = useState<string | null>(null)
+    const ref = useRef<HTMLDivElement>(null)
+    const inputRef = useRef<InputRef>(null)
+    const importInputRef = useRef<HTMLInputElement>(null)
 
     useEffect(()=>{
       if(ref.current) {
@@ -121,18 +136,76 @@ export function ActivityLog (props: any) {
       }
     }
 
+    const handleSend = () => {
+      if (!inputText.trim()) return
+      if (dmTarget) {
+        sendDirect(dmTarget, inputText.trim())
+      } else {
+        send({
+          content: { message: inputText.trim() },
+          metadata: { sender: senderData!, type: "message", code: 2, data: {} },
+        } as LogData)
+      }
+      setInputText("")
+      inputRef.current?.focus({ cursor: "all" })
+    }
+
+    const handleExport = () => {
+      const blob = new Blob([exportLog()], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `chat-log-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+
+    const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        const text = reader.result as string
+        if (text != null && text.length > 0) importLog(text)
+      }
+      reader.readAsText(file, "UTF-8")
+      e.target.value = ""
+    }
+
     return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
       <DiceRoller/>
       <Row style={{ justifyItems: "space-between", flex: chatCollapsed ? "0 0 auto" : "1 1 auto", minHeight: 0 }} gutter={[16, 16]}>
         <Col span={24} style={{ flexShrink: 0 }}>
-          <Divider style={{ margin: "12px 0", cursor: "pointer" }} onClick={handleToggleChat}>
-            <Badge count={unreadCount} size="small" overflowCount={99} offset={[4, 0]}>
-              <span style={{ userSelect: "none" }}>
-                Chat {chatCollapsed ? <DownOutlined /> : <UpOutlined />}
-              </span>
-            </Badge>
-          </Divider>
+          <Row align="middle" justify="space-between" wrap style={{ marginBottom: 4 }}>
+            <Col>
+              <Divider style={{ margin: "12px 0", cursor: "pointer" }} onClick={handleToggleChat}>
+                <Badge count={unreadCount} size="small" overflowCount={99} offset={[4, 0]}>
+                  <span style={{ userSelect: "none" }}>
+                    Chat {chatCollapsed ? <DownOutlined /> : <UpOutlined />}
+                  </span>
+                </Badge>
+              </Divider>
+            </Col>
+            {!chatCollapsed && (
+              <Col>
+                {isHost && (
+                  <>
+                    <Button size="small" icon={<DeleteOutlined />} onClick={clearMessageLog} title="Limpar log">
+                      Limpar
+                    </Button>
+                    <Button size="small" icon={<ImportOutlined />} onClick={() => importInputRef.current?.click()} title="Importar log">
+                      Importar
+                    </Button>
+                    <input type="file" accept=".json" ref={importInputRef} style={{ display: "none" }} onChange={handleImport} />
+                  </>
+                )}
+                <Button size="small" icon={<ExportOutlined />} onClick={handleExport} title="Exportar log">
+                  Exportar
+                </Button>
+              </Col>
+            )}
+          </Row>
         </Col>
         <Col
           span={24}
@@ -148,27 +221,27 @@ export function ActivityLog (props: any) {
             {isHost ? (
               <Flex>
                 <Col span={20}>
-                  <AnimatedList list={messageLog}/>
+                  <AnimatedList key={`chat-${messageLog.length}-${messageLog[0]?.id ?? ""}-${messageLog[messageLog.length - 1]?.id ?? ""}`} list={messageLog} isHost={isHost} onDeleteMessage={deleteMessage} />
                 </Col>
                 <Col span={4}>
                   <List
-                    dataSource={messageLog}
-                    renderItem={(item)=>{
-                      if(item.metadata.code == 1)
-                        return (
-                          <List.Item>
-                            <PlayerAlertMenu 
-                              target={item.metadata.sender}
-                              sender={senderData}
-                              send={send}/>
-                          </List.Item>
-                        )
-                    }}/>
+                    rowKey="name"
+                    dataSource={connectionSenders}
+                    renderItem={(peer) => (
+                      <List.Item>
+                        <PlayerAlertMenu
+                          target={{ avatar: peer.avatar, name: peer.name }}
+                          sender={senderData}
+                          send={send}
+                        />
+                      </List.Item>
+                    )}
+                  />
                 </Col>
               </Flex>
             ) : (
               <Col span={24}>
-                <AnimatedList list={messageLog}/>
+                <AnimatedList key={`chat-${messageLog.length}-${messageLog[0]?.id ?? ""}-${messageLog[messageLog.length - 1]?.id ?? ""}`} list={messageLog} isHost={false} onDeleteMessage={deleteMessage} />
               </Col>
             )}
             <div ref={ref}/>
@@ -184,22 +257,29 @@ export function ActivityLog (props: any) {
             padding: chatCollapsed ? 0 : undefined,
           }}
         >
-          <Input 
-            ref={inputRef}
-            value={inputText} 
-            onChange={(event)=>{setInputText(event.target.value)}} 
-            onPressEnter={()=>{
-              let data = {
-                content: {message: inputText},
-                metadata: {
-                  sender: senderData,
-                  type: "message",
-                  code: 2}
-              } as LogData
-              send(data)
-              inputRef.current!.focus({cursor: "all"})
-            }} 
-            suffix={<ArrowRightOutlined/>}/>
+          <Row gutter={8} align="middle">
+            {connected && connectionLabels.length > 0 && (
+              <Col flex="none">
+                <Select
+                  size="small"
+                  style={{ width: 160 }}
+                  value={dmTarget ?? "__all__"}
+                  onChange={(v) => setDmTarget(v === "__all__" ? null : v)}
+                  options={[{ value: "__all__", label: "Para todos" }, ...connectionLabels.map((l) => ({ value: l, label: `DM: ${l}` }))]}
+                />
+              </Col>
+            )}
+            <Col flex="1">
+              <Input
+                ref={inputRef}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onPressEnter={handleSend}
+                placeholder={dmTarget ? `Mensagem direta para ${dmTarget}` : "Mensagem..."}
+                suffix={<ArrowRightOutlined onClick={handleSend} style={{ cursor: "pointer" }} />}
+              />
+            </Col>
+          </Row>
         </Col>
       </Row>
     </div>

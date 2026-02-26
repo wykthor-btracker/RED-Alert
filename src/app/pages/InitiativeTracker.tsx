@@ -1,8 +1,9 @@
 import { Button, Col, FloatButton, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import QueueAnim from "rc-queue-anim";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import Fighter from "../comps/Fighter";
+import { LogData, MessageBusContext } from "../contexts/MessageBusContext";
 const { Title } = Typography;
 
 function DraggableFighter(props: {
@@ -174,6 +175,7 @@ export default function InitiativeTracker(props: any) {
       stoppingPowerMax: number;
       initiative: number;
     }
+    const { send, senderData } = useContext(MessageBusContext)
     const [data, setData]               = useState<Array<Idata>>([])
     const [toggleForm, setToggleForm]   = useState(false)
     const [currentTurnId, setCurrentTurnId] = useState<string | null>(null)
@@ -188,32 +190,40 @@ export default function InitiativeTracker(props: any) {
       SP: string;
       health: string;
     };
+
+    function broadcastUpdate(message: string) {
+      if (send && senderData) {
+        send({
+          content: { message },
+          metadata: { sender: senderData, type: "message", code: 2, data: {} },
+        } as LogData)
+      }
+    }
+
     function nextTurn () {
       setTracking(true)
       if (data.length === 0) return
       if (currentTurnId == null) {
         setCurrentTurnId(data[0].id)
+        broadcastUpdate(`Iniciativa: agora é a vez de ${data[0].name}`)
         return
       }
       const idx = data.findIndex((d) => d.id === currentTurnId)
-      if (idx === data.length - 1) {
-        setCurrentTurnId(data[0].id)
-      } else {
-        setCurrentTurnId(data[idx + 1].id)
-      }
+      const nextIdx = idx === data.length - 1 ? 0 : idx + 1
+      setCurrentTurnId(data[nextIdx].id)
+      broadcastUpdate(`Iniciativa: agora é a vez de ${data[nextIdx].name}`)
     }
     function previousTurn () {
       if (data.length === 0) return
       if (currentTurnId == null) {
         setCurrentTurnId(data[data.length - 1].id)
+        broadcastUpdate(`Iniciativa: voltou para ${data[data.length - 1].name}`)
         return
       }
       const idx = data.findIndex((d) => d.id === currentTurnId)
-      if (idx <= 0) {
-        setCurrentTurnId(data[data.length - 1].id)
-      } else {
-        setCurrentTurnId(data[idx - 1].id)
-      }
+      const prevIdx = idx <= 0 ? data.length - 1 : idx - 1
+      setCurrentTurnId(data[prevIdx].id)
+      broadcastUpdate(`Iniciativa: voltou para ${data[prevIdx].name}`)
     }
     const onFinish: FormProps<FieldType>['onFinish'] = (values) => {
       setData((prev) => {
@@ -228,6 +238,7 @@ export default function InitiativeTracker(props: any) {
         }]
         return next.sort((a, b) => b.initiative - a.initiative)
       })
+      broadcastUpdate(`Iniciativa: combatente adicionado — ${values.name}`)
     };
     function addNPC (values: any) {
         const initRoll = Math.floor(Math.random() * 10) + 1
@@ -243,6 +254,7 @@ export default function InitiativeTracker(props: any) {
           }]
           return next.sort((a, b) => b.initiative - a.initiative)
         })
+        broadcastUpdate(`Iniciativa: combatente adicionado — ${values.name}`)
     }
     function onInitiativeChange(id: string, value: number) {
       const intValue = Math.round(Number(value)) || 0
@@ -275,6 +287,7 @@ export default function InitiativeTracker(props: any) {
                   onClick={()=>{
                     setData([])
                     setCurrentTurnId(null)
+                    broadcastUpdate("Iniciativa: batalha limpa")
                   }}
                     >Clear battle</Button>
               </Col>
