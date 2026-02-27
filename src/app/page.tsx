@@ -5,6 +5,7 @@ import { Content, Footer } from "antd/es/layout/layout";
 import AudioCard from "./comps/AudioCard";
 import { MessageBus } from "./comps/MessageBus";
 import SideMenu from "./comps/sideMenu";
+import { ThemeProvider, ThemeToggle } from "./contexts/ThemeContext";
 import { LogData, LogDataMetadataSenderData } from "./contexts/MessageBusContext";
 import { ActivityLog } from "./pages/ActivityLog";
 import CharacterData from "./pages/CharacterData";
@@ -51,21 +52,31 @@ export default function Home() {
     }
   ]
   return (
-    <>
-    <MessageBus>
-      <Flex>
-        <Layout style={{backgroundColor: "white", flex:1, height: "100vh"}}>
-          <Content style={{height: "60vh", overflow: "scroll"}}>
-            <Tabs defaultActiveKey="1" items={items}
-              tabBarExtraContent={{right: <SideMenu/>}}/>
-          </Content>
-          <Footer style={{ flex: "0 0 auto", minHeight: 0, backgroundColor: "white" }}>
-            <ActivityLog/>
-          </Footer>
-        </Layout>
-      </Flex>
-    </MessageBus>
-    </>
+    <ThemeProvider>
+      <MessageBus>
+        <Flex>
+          <Layout style={{ backgroundColor: "var(--app-bg)", flex: 1, height: "100vh" }}>
+            <Content style={{ height: "60vh", overflow: "scroll" }}>
+              <Tabs
+                defaultActiveKey="1"
+                items={items}
+                tabBarExtraContent={{
+                  right: (
+                    <Row gutter={12} align="middle" wrap={false}>
+                      <SideMenu />
+                      <ThemeToggle />
+                    </Row>
+                  ),
+                }}
+              />
+            </Content>
+            <Footer style={{ flex: "0 0 auto", minHeight: 0, backgroundColor: "var(--app-footer-bg)" }}>
+              <ActivityLog />
+            </Footer>
+          </Layout>
+        </Flex>
+      </MessageBus>
+    </ThemeProvider>
   );
 }
 

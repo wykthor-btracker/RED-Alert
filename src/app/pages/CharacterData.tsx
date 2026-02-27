@@ -633,9 +633,9 @@ export default function CharacterData() {
           },
           {
             key: "credits",
-            label: "Créditos (eb)",
+            label: "Pixéis (eb)",
             children: (
-              <Form.Item label="Créditos">
+              <Form.Item label="Pixéis">
                 <InputNumber
                   min={0}
                   value={data.credits}

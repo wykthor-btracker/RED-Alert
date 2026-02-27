@@ -1,0 +1,21 @@
+/* Light (default) */
+:root,
+[data-theme="light"] {
+  --app-bg: #ffffff;
+  --app-footer-bg: #ffffff;
+}
+
+[data-theme="dark"] {
+  --app-bg: #141414;
+  --app-footer-bg: #1f1f1f;
+}
+
+body {
+  background-color: var(--app-bg);
+  color: rgba(0, 0, 0, 0.88);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+[data-theme="dark"] body {
+  color: rgba(255, 255, 255, 0.85);
+}
