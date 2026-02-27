@@ -20,6 +20,7 @@ import {
   Typography,
 } from "antd";
 import {
+  DeleteOutlined,
   DownloadOutlined,
   InfoCircleOutlined,
   PlusOutlined,
@@ -45,7 +46,7 @@ import {
 } from "../types/character";
 import { referenceSkills, SKILL_CATEGORY_LABELS } from "@/data/reference/skills";
 import type { SkillCategoryKey } from "@/app/types/reference";
-import { referenceWeapons, type ReferenceWeapon } from "@/data/reference/weapons";
+import { referenceWeapons, MELEE_CATEGORY_LABELS, type ReferenceWeapon } from "@/data/reference/weapons";
 import { referenceWearables } from "@/data/reference/wearables";
 import {
   RANGE_BANDS,
@@ -82,6 +83,7 @@ export default function CharacterData() {
     isHost,
     connected,
     savedCharacters,
+    removeSavedCharacter,
     currentEditedOwnerName,
     setCurrentEditedOwnerName,
     receivedSheets,
@@ -90,6 +92,7 @@ export default function CharacterData() {
 
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  const [deleteSheetConfirmOpen, setDeleteSheetConfirmOpen] = useState(false);
   const contactRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const noteRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const iconFileInputRef = useRef<HTMLInputElement>(null);
@@ -423,14 +426,43 @@ export default function CharacterData() {
 
       <Form layout="vertical" style={{ marginBottom: 16 }}>
         <Form.Item label="Nome da ficha">
-          <Input
-            placeholder="Ex.: Nome do personagem ou apelido"
-            value={data.sheetName ?? ""}
-            onChange={(e) => setSheetName(e.target.value)}
-            disabled={!canEdit}
-            allowClear
-          />
+          <Space.Compact style={{ width: "100%", maxWidth: 400 }}>
+            <Input
+              placeholder="Ex.: Nome do personagem ou apelido"
+              value={data.sheetName ?? ""}
+              onChange={(e) => setSheetName(e.target.value)}
+              disabled={!canEdit}
+              allowClear
+              style={{ flex: 1 }}
+            />
+            {isHost && (
+              <Button
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => setDeleteSheetConfirmOpen(true)}
+                title="Apagar ficha"
+              />
+            )}
+          </Space.Compact>
         </Form.Item>
+        {isHost && (
+          <Modal
+            title="Apagar ficha?"
+            open={deleteSheetConfirmOpen}
+            onCancel={() => setDeleteSheetConfirmOpen(false)}
+            onOk={() => {
+              const ownerName = currentEditedOwnerName ?? senderData?.name ?? "Host";
+              removeSavedCharacter(ownerName);
+              setDeleteSheetConfirmOpen(false);
+            }}
+            okText="Apagar"
+            okButtonProps={{ danger: true }}
+            cancelText="Cancelar"
+          >
+            Tem a certeza que deseja apagar esta ficha? Esta ação não pode ser desfeita.
+          </Modal>
+        )}
         <Form.Item label="Ícone do personagem">
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 12 }}>
             {data.characterIcon && (
@@ -545,6 +577,17 @@ export default function CharacterData() {
                     const renderSkill = (item: (typeof items)[0]) => {
                       const statVal = data.stats[item.baseStat] ?? 0;
                       const sum = statVal + item.value;
+                      const isTechnical = item.category === "tecnica";
+                      const nameStyle = isTechnical
+                        ? {
+                            fontSize: 11,
+                            maxWidth: 140,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }
+                        : undefined;
+                      const metaStyle = isTechnical ? { fontSize: 11 } : undefined;
                       return (
                         <List.Item
                           key={item.key}
@@ -569,9 +612,11 @@ export default function CharacterData() {
                             <Tooltip title={item.description}>
                               <InfoCircleOutlined style={{ color: "#999" }} />
                             </Tooltip>
-                            <Text strong>{item.name}</Text>
-                            <Text type="secondary">({item.baseStat})</Text>
-                            <Text>= {sum}</Text>
+                            <Text strong style={nameStyle}>{item.name}</Text>
+                            <Text type="secondary" style={metaStyle}>
+                              ({item.baseStat})
+                            </Text>
+                            <Text style={metaStyle}>= {sum}</Text>
                           </Space>
                         </List.Item>
                       );
@@ -661,6 +706,7 @@ export default function CharacterData() {
             label: "Inventário",
             children: (
               <InventorySection
+                data={data}
                 weapons={data.weapons}
                 wearables={data.wearables}
                 consumables={data.consumables}
@@ -682,7 +728,7 @@ export default function CharacterData() {
           },
           {
             key: "info",
-            label: "Informação (Contactos e Notas)",
+            label: "Informação (Contatos e Notas)",
             children: (
               <InfoSection
                 contacts={data.contacts}
@@ -736,16 +782,58 @@ function rollDice(count: number, size: number): { rolls: number[]; sum: number }
   return { rolls, sum: rolls.reduce((a, b) => a + b, 0) };
 }
 
+type WeaponAttackMeta = {
+  baseStatKey: string;
+  baseStatValue: number;
+  skillName: string;
+  skillValue: number;
+};
+
+function resolveWeaponAttackMeta(
+  refWeapon: ReferenceWeapon | undefined,
+  data: CharacterDataT | null
+): WeaponAttackMeta | undefined {
+  if (!refWeapon || !data) return undefined;
+
+  const name = refWeapon.skill ?? "";
+
+  // Try to match directly by reference skill name
+  let refSkill =
+    referenceSkills.find((s) => s.name === name) ??
+    // Fallbacks for slight naming differences / melee
+    (name === "Arma Pesada"
+      ? referenceSkills.find((s) => s.id === "armas-pesadas")
+      : name === "Luta" || refWeapon.weaponType === "melee"
+      ? referenceSkills.find((s) => s.id === "melee-weapon")
+      : undefined);
+
+  if (!refSkill) return undefined;
+
+  const baseStatKey = refSkill.baseStat;
+  const baseStatValue = data.stats?.[baseStatKey] ?? 0;
+  const skillEntry = data.skills?.[refSkill.id];
+  const skillValue = skillEntry?.value ?? 0;
+
+  return {
+    baseStatKey,
+    baseStatValue,
+    skillName: refSkill.name,
+    skillValue,
+  };
+}
+
 function WeaponUseModal({
   open,
   onCancel,
   weapon,
   refWeapon,
+  attackMeta,
 }: {
   open: boolean;
   onCancel: () => void;
   weapon: InventoryEntry;
   refWeapon: ReferenceWeapon | undefined;
+  attackMeta?: WeaponAttackMeta;
 }) {
   const { send, senderData } = useContext(MessageBusContext);
   const weaponType = refWeapon?.weaponType;
@@ -766,6 +854,55 @@ function WeaponUseModal({
       metadata: { sender: senderData, code: 2, type: "message", data: {} },
     });
   };
+
+  const meleeDetailsRow =
+    refWeapon &&
+    isMelee &&
+    (refWeapon.skill || refWeapon.damageDice)
+      ? [
+          {
+            key: "melee",
+            tipo:
+              refWeapon.meleeCategory && MELEE_CATEGORY_LABELS[refWeapon.meleeCategory]
+                ? MELEE_CATEGORY_LABELS[refWeapon.meleeCategory]
+                : "—",
+            exemplo: refWeapon.name ?? "—",
+            hands: refWeapon.hands ?? "—",
+            damage: refWeapon.damageDice ?? "—",
+            rof: refWeapon.rof ?? "—",
+            concealable:
+              refWeapon.concealable == null ? "—" : refWeapon.concealable ? "SIM" : "NÃO",
+            cost:
+              refWeapon.price != null
+                ? `${refWeapon.price}eb${refWeapon.costTier ? ` (${refWeapon.costTier})` : ""}`
+                : refWeapon.costTier ?? "—",
+          },
+        ]
+      : null;
+  const detailsRow =
+    refWeapon &&
+    !isMelee &&
+    (refWeapon.skill || refWeapon.damageDice)
+      ? [
+          {
+            key: "details",
+            skill: refWeapon.skill ?? "—",
+            damage: refWeapon.damageDice ?? "—",
+            magazine: refWeapon.magazineSize ?? "N/A",
+            rof: refWeapon.rof ?? "—",
+            hands: refWeapon.hands ?? "—",
+            concealable:
+              refWeapon.concealable == null ? "—" : refWeapon.concealable ? "Sim" : "Não",
+            cost:
+              refWeapon.price != null
+                ? `${refWeapon.price} eb${
+                    refWeapon.costTier ? ` (${refWeapon.costTier})` : ""
+                  }`
+                : refWeapon.costTier ?? "—",
+            special: refWeapon.special ?? "—",
+          },
+        ]
+      : null;
 
   const baseShotDv = isRanged && weaponType in BASE_SHOT_DV ? BASE_SHOT_DV[weaponType as RangedWeaponTypeKey] : null;
   const autofireDv = hasAutofire && weaponType && weaponType in AUTOFIRE_DV ? AUTOFIRE_DV[weaponType] : null;
@@ -822,6 +959,41 @@ function WeaponUseModal({
       width={Math.min(900, typeof window !== "undefined" ? window.innerWidth - 48 : 900)}
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {meleeDetailsRow && (
+          <Table
+            size="small"
+            pagination={false}
+            bordered
+            columns={[
+              { title: "Tipo de Arma Branca", dataIndex: "tipo", key: "tipo" },
+              { title: "Exemplo", dataIndex: "exemplo", key: "exemplo" },
+              { title: "Mãos", dataIndex: "hands", key: "hands" },
+              { title: "Dano", dataIndex: "damage", key: "damage" },
+              { title: "CDT", dataIndex: "rof", key: "rof" },
+              { title: "Pode ser Ocultado?", dataIndex: "concealable", key: "concealable" },
+              { title: "Custo", dataIndex: "cost", key: "cost" },
+            ]}
+            dataSource={meleeDetailsRow}
+          />
+        )}
+        {detailsRow && (
+          <Table
+            size="small"
+            pagination={false}
+            bordered
+            columns={[
+              { title: "Habilidade", dataIndex: "skill", key: "skill" },
+              { title: "Dano", dataIndex: "damage", key: "damage" },
+              { title: "Carregador", dataIndex: "magazine", key: "magazine" },
+              { title: "CDT", dataIndex: "rof", key: "rof" },
+              { title: "Mãos", dataIndex: "hands", key: "hands" },
+              { title: "Ocultável?", dataIndex: "concealable", key: "concealable" },
+              { title: "Custo", dataIndex: "cost", key: "cost" },
+              { title: "Especiais", dataIndex: "special", key: "special" },
+            ]}
+            dataSource={detailsRow}
+          />
+        )}
         {isRanged && baseShotDv && (
           <>
             <Text strong>DVs de disparo baseados na distância</Text>
@@ -846,8 +1018,34 @@ function WeaponUseModal({
             />
           </>
         )}
-        {isMelee && <Text>Corpo a corpo. Use a habilidade indicada na ficha para o teste de ataque.</Text>}
+        {attackMeta && (
+          <Text>
+            Teste de ataque usando {attackMeta.baseStatKey} {attackMeta.baseStatValue} +
+            {" "}
+            {attackMeta.skillName} {attackMeta.skillValue}.
+          </Text>
+        )}
+        {!attackMeta && isMelee && (
+          <Text>
+            Corpo a corpo. Use a habilidade indicada na ficha para o teste de ataque.
+          </Text>
+        )}
         <Space wrap>
+          {attackMeta && (
+            <Button onClick={() => {
+              if (!senderData) return;
+              const { rolls } = rollDice(1, 10);
+              const rolled = rolls[0];
+              const total = attackMeta.baseStatValue + attackMeta.skillValue + rolled;
+              const message = `${weapon.name} — Ataque: ${attackMeta.baseStatKey} ${attackMeta.baseStatValue} + ${attackMeta.skillName} ${attackMeta.skillValue} + ${rolled}(d10) = ${total}`;
+              send({
+                content: { message },
+                metadata: { sender: senderData, code: 2, type: "message", data: {} },
+              });
+            }}>
+              Teste para Acertar
+            </Button>
+          )}
           {isRanged && damageDice && (
             <>
               <Button type="primary" onClick={() => rollAndSend("Disparo padrão")}>
@@ -911,12 +1109,14 @@ Se você acertar, você causa o dano do ataque normalmente e também o alvo rece
 }
 
 function InventorySection({
+  data,
   weapons,
   wearables,
   consumables,
   canEdit,
   updateData,
 }: {
+  data: CharacterDataT;
   weapons: InventoryEntry[];
   wearables: InventoryEntry[];
   consumables: InventoryEntry[];
@@ -1145,6 +1345,10 @@ function InventorySection({
   const refWeaponForModal = weaponForModal?.referenceId
     ? (referenceWeapons as ReferenceWeapon[]).find((r) => r.id === weaponForModal.referenceId)
     : undefined;
+  const attackMetaForModal = useMemo(
+    () => resolveWeaponAttackMeta(refWeaponForModal, data),
+    [refWeaponForModal, data]
+  );
 
   return (
     <>
@@ -1183,6 +1387,7 @@ function InventorySection({
         onCancel={() => setUseWeaponIndex(null)}
         weapon={weaponForModal ?? { name: "", quantity: 1 }}
         refWeapon={refWeaponForModal}
+        attackMeta={attackMetaForModal}
       />
       {renderArmorHelmList("Armadura (corpo)", "armor", armorItems)}
       {renderArmorHelmList("Capacete (cabeça)", "helm", helmItems)}
@@ -1473,7 +1678,7 @@ function InfoSection({
 
   return (
     <>
-      <Title level={5}>Contactos</Title>
+      <Title level={5}>Contatos</Title>
       {contacts.map((c) => (
         <Card
           key={c.id}
