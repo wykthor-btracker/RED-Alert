@@ -289,7 +289,10 @@ export default function InitiativeTracker(props: any) {
         });
         return changed ? next : prev;
       });
-    }, [savedCharacters, userData, currentEditedOwnerName, setInitiativeCombatants, skipNextSheetToCombatantSync, setSkipNextSheetToCombatantSync])
+    // Intentionally omit skipNextSheetToCombatantSync from deps so we only run when sheet data changes.
+    // That avoids a second run when the skip flag is cleared, which could overwrite preset combatant edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- skip is read on each run when deps below change
+    }, [savedCharacters, userData, currentEditedOwnerName, setInitiativeCombatants, setSkipNextSheetToCombatantSync])
 
     const [tracking, setTracking]       = useState(false)
     const [addFighters, setAddFighters] = useState(false)

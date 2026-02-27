@@ -21,6 +21,9 @@ export default function Fighter(props: any) {
       flex: 1
     }
     const currentRef = useRef<null | HTMLDivElement>(null);
+    /** After we push a health change, ignore one props sync that would revert (stale intermediate render). */
+    const pendingHealthRef = useRef<{ current: number; max: number } | null>(null);
+    const pendingHealthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [value, setValue] = useState("0")
     const [shield, setShield] = useState(0)
     const [editingName, setEditingName] = useState(false)
@@ -37,9 +40,23 @@ export default function Fighter(props: any) {
     /** Input values for Set SP (body and head), pre-filled with starting/max SP */
     const [setSpBodyValue, setSetSpBodyValue] = useState(stats.stoppingPowerMax)
     const [setSpHeadValue, setSetSpHeadValue] = useState(stats.stoppingPowerHeadMax)
-    // Sync from parent when combatant is updated from outside (e.g. damage/armor from Mapa tab)
+    // Sync from parent when combatant is updated from outside (e.g. damage/armor from Mapa tab).
+    // If we just pushed a health change, ignore a props update that doesn't match what we sent (avoids revert from stale state).
     useEffect(() => {
       const item = props.item as { stoppingPowerHead?: number; stoppingPowerHeadMax?: number };
+      const pending = pendingHealthRef.current;
+      if (pending) {
+        if (props.item.currentHealth === pending.current && props.item.maxHealth === pending.max) {
+          pendingHealthRef.current = null;
+          if (pendingHealthTimeoutRef.current) {
+            clearTimeout(pendingHealthTimeoutRef.current);
+            pendingHealthTimeoutRef.current = null;
+          }
+        } else {
+          // Stale props (e.g. revert); don't overwrite local state this run
+          return;
+        }
+      }
       setStats((prev) => ({
         ...prev,
         name: props.item.name,
@@ -68,6 +85,9 @@ export default function Fighter(props: any) {
       const amount = Number(value)
       const newHp = Math.min(stats.currentHealth + amount, stats.maxHealth)
       setStats({ ...stats, currentHealth: newHp })
+      pendingHealthRef.current = { current: newHp, max: stats.maxHealth }
+      if (pendingHealthTimeoutRef.current) clearTimeout(pendingHealthTimeoutRef.current)
+      pendingHealthTimeoutRef.current = setTimeout(() => { pendingHealthRef.current = null; pendingHealthTimeoutRef.current = null; }, 400)
       ;(props as { onHealthChange?: (id: string, current: number, max?: number) => void }).onHealthChange?.(props.item.id, newHp, stats.maxHealth)
       broadcastUpdate(`${stats.name} curou ${amount} de HP`)
     }
@@ -92,6 +112,9 @@ export default function Fighter(props: any) {
         setShield(0)
         const newHp = Math.max(stats.currentHealth - hpDamage, 0)
         setStats({ ...stats, currentHealth: newHp })
+        pendingHealthRef.current = { current: newHp, max: stats.maxHealth }
+        if (pendingHealthTimeoutRef.current) clearTimeout(pendingHealthTimeoutRef.current)
+        pendingHealthTimeoutRef.current = setTimeout(() => { pendingHealthRef.current = null; pendingHealthTimeoutRef.current = null; }, 400)
         ;(props as { onHealthChange?: (id: string, current: number, max?: number) => void }).onHealthChange?.(props.item.id, newHp, stats.maxHealth)
         msg = shield > 0
           ? `${stats.name} tomou ${totalVal} de dano (${shield} no escudo, ${hpDamage} na vida)`
