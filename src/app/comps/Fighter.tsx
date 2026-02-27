@@ -1,6 +1,7 @@
 import { Badge, Button, Col, Input, InputNumber, List, Progress, Row, Tooltip } from "antd";
 import { useContext, useEffect, useRef, useState } from "react";
 import { LogData, MessageBusContext } from "../contexts/MessageBusContext";
+import { resolveCharacterIcon } from "@/data/characterPresetIcons";
 
 export default function Fighter(props: any) {
     const { send, senderData } = useContext(MessageBusContext)
@@ -133,7 +134,21 @@ export default function Fighter(props: any) {
           <Row style={style}>
             <Col span={24}>
               <Row justify="space-between" align="middle">
-                <Col>
+                <Col style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {(props.item as { characterIcon?: string }).characterIcon && (
+                    <div
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        backgroundImage: `url(${resolveCharacterIcon((props.item as { characterIcon?: string }).characterIcon)})`,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                        flexShrink: 0,
+                      }}
+                      aria-hidden
+                    />
+                  )}
                   {props.onNameChange ? (
                     editingName ? (
                       <Input

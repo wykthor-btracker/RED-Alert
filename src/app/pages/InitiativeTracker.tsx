@@ -21,7 +21,7 @@ function nameForNewCombatant(existing: InitiativeCombatant[], name: string): str
   return `(${count + 1})${base}`;
 }
 
-function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number; bodyArmorName?: string; headArmorName?: string } {
+function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number; bodyArmorName?: string; headArmorName?: string; characterIcon?: string } {
   return {
     id: c.id,
     name: c.name,
@@ -34,11 +34,12 @@ function toIdata(c: InitiativeCombatant): { id: string; name: string; currentHea
     initiative: c.initiative ?? 0,
     bodyArmorName: c.bodyArmorName,
     headArmorName: c.headArmorName,
+    characterIcon: c.characterIcon,
   };
 }
 
 function DraggableFighter(props: {
-  item: { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number; bodyArmorName?: string; headArmorName?: string };
+  item: { id: string; name: string; currentHealth: number; maxHealth: number; stoppingPower: number; stoppingPowerMax: number; stoppingPowerHead: number; stoppingPowerHeadMax: number; initiative: number; bodyArmorName?: string; headArmorName?: string; characterIcon?: string };
   index: number;
   currentTurn: number;
   onInitiativeChange: (id: string, value: number) => void;
@@ -270,7 +271,8 @@ export default function InitiativeTracker(props: any) {
           const curHpMax = c.maxHealth ?? 0;
           const hpMatch = curHp === sheetHp && curHpMax === sheetHpMax;
           const spMatch = curBody === body && curBodyMax === bodyMax && curHead === head && curHeadMax === headMax;
-          if (hpMatch && spMatch) return c;
+          const iconMatch = (c.characterIcon ?? undefined) === (sheetData.characterIcon ?? undefined);
+          if (hpMatch && spMatch && iconMatch) return c;
           changed = true;
           return {
             ...c,
@@ -282,6 +284,7 @@ export default function InitiativeTracker(props: any) {
             stoppingPowerHeadMax: headMax,
             bodyArmorName: sp.bodyArmorName,
             headArmorName: sp.headArmorName,
+            characterIcon: sheetData.characterIcon,
           };
         });
         return changed ? next : prev;
@@ -371,7 +374,7 @@ export default function InitiativeTracker(props: any) {
         broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`)
     }
 
-    function addSheetToBattle(entry: { ownerName: string; data: { sheetName?: string; currentHealth?: number; maxHealth?: number; wearables?: unknown[] } }) {
+    function addSheetToBattle(entry: { ownerName: string; data: { sheetName?: string; currentHealth?: number; maxHealth?: number; wearables?: unknown[]; characterIcon?: string } }) {
       const sheet = entry.data;
       const displayName = nameForNewCombatant(initiativeCombatants, sheet.sheetName?.trim() || entry.ownerName);
       const sp = getSheetStoppingPower(sheet as import("../types/character").CharacterData, referenceWearables);
@@ -390,6 +393,7 @@ export default function InitiativeTracker(props: any) {
         sourceSheetName: sheet.sheetName?.trim() || entry.ownerName,
         bodyArmorName: sp.bodyArmorName,
         headArmorName: sp.headArmorName,
+        characterIcon: sheet.characterIcon,
       }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
       setInitiativeCombatants(next);
       broadcastUpdate(`Iniciativa: ficha adicionada — ${displayName}`);

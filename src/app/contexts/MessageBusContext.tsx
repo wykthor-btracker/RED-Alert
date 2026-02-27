@@ -63,6 +63,8 @@ export interface InitiativeCombatant {
   bodyArmorName?: string;
   /** Name of the equipped helm providing head SP (for display in iniciativa). */
   headArmorName?: string;
+  /** Character portrait/icon (data URL or preset id); used in initiative list and map cell background. */
+  characterIcon?: string;
 }
 
 export interface MessageBusContextValue {

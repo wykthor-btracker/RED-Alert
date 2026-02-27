@@ -18,6 +18,7 @@ import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } fro
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { InitiativeCombatant, LogData, MapGridState, MessageBusContext } from "../contexts/MessageBusContext";
+import { resolveCharacterIcon } from "@/data/characterPresetIcons";
 
 const DRAG_TYPE_INITIATIVE = "application/x-initiative-combatant";
 const DRAG_TYPE_MAP_CELL = "application/x-map-cell";
@@ -1347,11 +1348,18 @@ export default function MapGrid() {
                               ? "rgba(255, 180, 80, 0.35)"
                               : isCover
                                 ? "#1a1a1a"
-                                : combatantId && hasBackgroundImage
-                                  ? "#fff"
-                                  : hasBackgroundImage
-                                    ? "transparent"
-                                    : "#fff",
+                                : combatantId && combatant?.characterIcon
+                                  ? "transparent"
+                                  : combatantId && hasBackgroundImage
+                                    ? "#fff"
+                                    : hasBackgroundImage
+                                      ? "transparent"
+                                      : "#fff",
+                    backgroundImage: combatant?.characterIcon
+                      ? `url("${resolveCharacterIcon(combatant.characterIcon)}")`
+                      : undefined,
+                    backgroundSize: combatant?.characterIcon ? "cover" : undefined,
+                    backgroundPosition: combatant?.characterIcon ? "center" : undefined,
                     border:
                       isMirarOrigin
                         ? "2px solid #1890ff"
@@ -1364,7 +1372,7 @@ export default function MapGrid() {
                               : isCover
                                 ? "1px solid #333"
                                 : "1px solid #bfbfbf",
-                    borderRadius: combatantId && hasBackgroundImage ? "50%" : 2,
+                    borderRadius: combatantId && (hasBackgroundImage || combatant?.characterIcon) ? "50%" : 2,
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
@@ -1429,6 +1437,25 @@ export default function MapGrid() {
                   )}
                   {combatantId && combatant ? (
                     <>
+                      {combatant.characterIcon && (() => {
+                        const resolved = resolveCharacterIcon(combatant.characterIcon);
+                        if (!resolved) return null;
+                        const safeUrl = resolved.replace(/\\/g, "\\\\").replace(/"/g, '\\22');
+                        return (
+                          <div
+                            aria-hidden
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              borderRadius: "inherit",
+                              backgroundImage: `url("${safeUrl}")`,
+                              backgroundSize: "cover",
+                              backgroundPosition: "center",
+                              pointerEvents: "none",
+                            }}
+                          />
+                        );
+                      })()}
                       {isHovered && (
                         <CombatantHoverBars
                           cellEl={hoveredCellEl}
@@ -1449,22 +1476,26 @@ export default function MapGrid() {
                           isHost={!!isHost}
                         />
                       )}
-                      <span
-                        style={{
-                          fontSize: Math.max(8, Math.floor(cellSize / 6)),
-                          fontWeight: 600,
-                          textAlign: "center",
-                          lineHeight: 1.1,
-                          maxWidth: cellSize - 4,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                        }}
-                      >
-                        {displayText ?? combatantName ?? ""}
-                      </span>
+                      {!combatant.characterIcon && (
+                        <span
+                          style={{
+                            position: "relative",
+                            zIndex: 1,
+                            fontSize: Math.max(8, Math.floor(cellSize / 6)),
+                            fontWeight: 600,
+                            textAlign: "center",
+                            lineHeight: 1.1,
+                            maxWidth: cellSize - 4,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical",
+                          }}
+                        >
+                          {displayText ?? combatantName ?? ""}
+                        </span>
+                      )}
                     </>
                   ) : (
                     displayText ?? (isCover && coverHealth != null ? `HP ${coverHealth}` : isCover ? "🛡" : "—")

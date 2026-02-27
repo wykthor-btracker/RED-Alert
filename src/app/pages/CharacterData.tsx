@@ -49,6 +49,7 @@ import { referenceWearables } from "@/data/reference/wearables";
 import type { ReferenceWearable } from "@/app/types/reference";
 import { referenceConsumables } from "@/data/reference/consumables";
 import { referenceCyberware } from "@/data/reference/cyberware";
+import { PRESETS, resolveCharacterIcon } from "@/data/characterPresetIcons";
 
 const { Title, Text } = Typography;
 
@@ -81,9 +82,15 @@ export default function CharacterData() {
   const [importText, setImportText] = useState("");
   const contactRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const noteRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
+  const iconFileInputRef = useRef<HTMLInputElement>(null);
 
   const data = userData ?? null;
   const canEdit = isHost || connected;
+  /** Only host or the client who owns this sheet can change the character icon. */
+  const canEditIcon =
+    isHost ||
+    (currentEditedOwnerName == null && connected) ||
+    (currentEditedOwnerName != null && currentEditedOwnerName === senderData?.name);
 
   const mentionEntities: MentionEntity[] = useMemo(() => {
     const out: MentionEntity[] = [];
@@ -128,6 +135,11 @@ export default function CharacterData() {
 
   const setSheetName = useCallback(
     (sheetName: string) => updateData((d) => ({ ...d, sheetName: sheetName || undefined })),
+    [updateData]
+  );
+
+  const setCharacterIcon = useCallback(
+    (characterIcon: string | undefined) => updateData((d) => ({ ...d, characterIcon })),
     [updateData]
   );
 
@@ -408,6 +420,84 @@ export default function CharacterData() {
             disabled={!canEdit}
             allowClear
           />
+        </Form.Item>
+        <Form.Item label="Ícone do personagem">
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 12 }}>
+            {data.characterIcon && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    backgroundImage: `url(${resolveCharacterIcon(data.characterIcon)})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    border: "2px solid #d9d9d9",
+                  }}
+                  aria-hidden
+                />
+                <Text type="secondary" style={{ fontSize: 12 }}>Atual</Text>
+              </div>
+            )}
+            {canEditIcon && (
+              <>
+                <input
+                  type="file"
+                  accept="image/*"
+                  ref={iconFileInputRef}
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file?.type.startsWith("image/")) return;
+                    const reader = new FileReader();
+                    reader.onload = () => setCharacterIcon(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                <Button size="small" icon={<UploadOutlined />} onClick={() => iconFileInputRef.current?.click()}>
+                  Carregar imagem
+                </Button>
+                <Button size="small" onClick={() => setCharacterIcon(undefined)} disabled={!data.characterIcon}>
+                  Remover ícone
+                </Button>
+              </>
+            )}
+          </div>
+          {canEditIcon && (
+            <div style={{ marginTop: 12 }}>
+              <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>Presets (estética cyberpunk)</Text>
+              <Row gutter={[8, 8]}>
+                {PRESETS.map((preset) => {
+                  const resolved = resolveCharacterIcon(preset.id);
+                  const isSelected = data.characterIcon === preset.id;
+                  return (
+                    <Col key={preset.id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setCharacterIcon(preset.id)}
+                        onKeyDown={(e) => e.key === "Enter" && setCharacterIcon(preset.id)}
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: "50%",
+                          backgroundImage: resolved ? `url(${resolved})` : undefined,
+                          backgroundSize: "cover",
+                          backgroundPosition: "center",
+                          border: isSelected ? "2px solid #1677ff" : "2px solid #d9d9d9",
+                          cursor: "pointer",
+                        }}
+                        title={preset.name}
+                        aria-label={preset.name}
+                      />
+                    </Col>
+                  );
+                })}
+              </Row>
+            </div>
+          )}
         </Form.Item>
       </Form>
 

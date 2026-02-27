@@ -65,6 +65,8 @@ export interface Note {
 export interface CharacterData {
   /** Display name for this sheet (e.g. character name or "Alice - Netrunner"). */
   sheetName?: string;
+  /** Data URL or preset id for character portrait/icon (used in initiative and map cells). */
+  characterIcon?: string;
   stats: Stats;
   skills: Skills;
   credits: number;
