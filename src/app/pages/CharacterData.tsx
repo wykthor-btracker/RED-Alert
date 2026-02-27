@@ -789,6 +789,7 @@ export default function CharacterData() {
             children: (
               <CyberwareSection
                 cyberware={data.cyberware}
+                currentHumanity={data.currentHumanity}
                 canEdit={canEdit}
                 updateData={updateData}
                 scrollToCyberwareRef={scrollToCyberwareRef}
@@ -1630,13 +1631,18 @@ function getInstallOrder(
   return ordered.map((id) => refMap.get(id)!).filter(Boolean);
 }
 
+const LOW_HUMANITY_WARNING =
+  "Cuidado! Você vai se sentir mais máquina do que carne desse jeito...";
+
 function CyberwareSection({
   cyberware,
+  currentHumanity,
   canEdit,
   updateData,
   scrollToCyberwareRef,
 }: {
   cyberware: CyberwareEntry[];
+  currentHumanity?: number;
   canEdit: boolean;
   updateData: (updater: (prev: CharacterDataT) => CharacterDataT) => void;
   scrollToCyberwareRef: React.MutableRefObject<((slug: string) => void) | null>;
@@ -1649,9 +1655,32 @@ function CyberwareSection({
 
   const installedIds = useMemo(() => getInstalledRefIds(cyberware), [cyberware]);
   const refId = Form.useWatch("referenceId", form);
+  const formHumanityCost = Form.useWatch("humanityCost", form);
   const selectedRef = refId
     ? referenceCyberware.find((r) => r.id === refId) ?? null
     : null;
+
+  const singleAddHumanityCost =
+    (formHumanityCost ?? selectedRef?.humanityCost ?? 0) || 0;
+  const installAllTotalHumanityCost = useMemo(
+    () => installList.reduce((s, r) => s + (r.humanityCost ?? 0), 0),
+    [installList]
+  );
+
+  const reduceHumanity = (cost: number) => {
+    if (cost <= 0) return;
+    updateData((d) => ({
+      ...d,
+      currentHumanity: Math.max(0, (d.currentHumanity ?? 0) - cost),
+    }));
+    message.success(`Humanidade reduzida em ${cost}.`);
+  };
+
+  const singleAddWouldReduceBelow20 =
+    singleAddHumanityCost > 0 && ((currentHumanity ?? 0) - singleAddHumanityCost < 20);
+  const installAllWouldReduceBelow20 =
+    installAllTotalHumanityCost > 0 &&
+    (currentHumanity ?? 0) - installAllTotalHumanityCost < 20;
 
   /** Reference cyberware grouped by category for the add modal. */
   const refByCategory = useMemo(() => {
@@ -1747,6 +1776,11 @@ function CyberwareSection({
     setInstallAllConfirmOpen(true);
   };
 
+  const closeInstallAllConfirm = () => {
+    setInstallAllConfirmOpen(false);
+    setInstallList([]);
+  };
+
   const confirmInstallAll = () => {
     const newEntries: CyberwareEntry[] = installList.map((r) => ({
       name: r.name,
@@ -1761,8 +1795,7 @@ function CyberwareSection({
     }));
     form.resetFields();
     setModalOpen(false);
-    setInstallAllConfirmOpen(false);
-    setInstallList([]);
+    closeInstallAllConfirm();
   };
 
   return (
@@ -1826,138 +1859,181 @@ function CyberwareSection({
         </Button>
       )}
       <Modal
-        title="Adicionar cyberware"
+        title={installAllConfirmOpen ? "Instalar tudo — confirmação" : "Adicionar cyberware"}
         open={modalOpen}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => (installAllConfirmOpen ? closeInstallAllConfirm() : setModalOpen(false))}
         width={560}
         footer={
           <Space>
-            <Button onClick={() => setModalOpen(false)}>Cancelar</Button>
-            {missingPrereqs.length > 0 && selectedRef ? (
-              <Button type="primary" onClick={openInstallAllConfirm}>
-                Instalar tudo
-              </Button>
+            {installAllConfirmOpen ? (
+              <>
+                <Button onClick={closeInstallAllConfirm}>Voltar</Button>
+                {installAllTotalHumanityCost > 0 && (
+                  <Button onClick={() => reduceHumanity(installAllTotalHumanityCost)}>
+                    Reduzir humanidade
+                  </Button>
+                )}
+                <Button type="primary" onClick={confirmInstallAll}>
+                  Confirmar
+                </Button>
+              </>
             ) : (
-              <Button type="primary" onClick={handleOk}>
-                Adicionar
-              </Button>
+              <>
+                <Button onClick={() => setModalOpen(false)}>Cancelar</Button>
+                {singleAddHumanityCost > 0 && (
+                  <Button onClick={() => reduceHumanity(singleAddHumanityCost)}>
+                    Reduzir humanidade
+                  </Button>
+                )}
+                {missingPrereqs.length > 0 && selectedRef ? (
+                  <Button type="primary" onClick={openInstallAllConfirm}>
+                    Instalar tudo
+                  </Button>
+                ) : (
+                  <Button type="primary" onClick={handleOk}>
+                    Adicionar
+                  </Button>
+                )}
+              </>
             )}
           </Space>
         }
       >
-        <Form form={form} layout="vertical">
-          <Form.Item name="referenceId" hidden>
-            <Input type="hidden" />
-          </Form.Item>
-          <Form.Item label="Escolher da referência" style={{ marginBottom: 12 }}>
-            <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid var(--color-border)", borderRadius: 6, padding: 8 }}>
-              {refByCategory.map(({ category, label, items }) => (
-                <div key={category} style={{ marginBottom: 12 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--color-text-secondary)" }}>{label}</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {items.map((r) => {
-                      const selected = refId === r.id;
-                      const tooltipTitle = r.description ?? r.name;
-                      return (
-                        <Tooltip key={r.id} title={tooltipTitle} placement="left">
-                          <button
-                            type="button"
-                            onClick={() => form.setFieldsValue({ referenceId: r.id, name: r.name, humanityCost: r.humanityCost })}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              width: "100%",
-                              textAlign: "left",
-                              padding: "6px 10px",
-                              borderRadius: 4,
-                              border: "1px solid transparent",
-                              background: selected ? "var(--color-primary-bg)" : "transparent",
-                              color: selected ? "var(--color-primary)" : "var(--color-text)",
-                              cursor: "pointer",
-                            }}
-                          >
-                            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
-                            <span style={{ flexShrink: 0, marginLeft: 8 }}>
-                              {r.price} eb
-                              {r.humanityCost != null && r.humanityCost > 0 ? `, ${r.humanityCost} CH` : ""}
-                            </span>
-                          </button>
-                        </Tooltip>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-              <Button type="link" size="small" onClick={() => form.setFieldsValue({ referenceId: undefined, name: "", humanityCost: undefined })} style={{ marginTop: 4 }}>
-                Limpar / entrada custom
-              </Button>
-            </div>
-          </Form.Item>
-          {missingPrereqs.length > 0 && selectedRef && (
-            <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
-              Pré-requisitos em falta:{" "}
-              {missingPrereqs
-                .map((id) => referenceCyberware.find((r) => r.id === id)?.name ?? id)
-                .join(", ")}
-              . Use &quot;Instalar tudo&quot; para instalar pré-requisitos e este item.
+        {installAllConfirmOpen ? (
+          <>
+            <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
+              Serão instalados os seguintes itens (pré-requisitos primeiro):
             </Text>
-          )}
-          <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="humanityCost" label="Custo de humanidade">
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="notes" label="Notas">
-            <Input />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="Instalar tudo — confirmação"
-        open={installAllConfirmOpen}
-        onCancel={() => setInstallAllConfirmOpen(false)}
-        footer={
-          <Space>
-            <Button onClick={() => setInstallAllConfirmOpen(false)}>Voltar</Button>
-            <Button type="primary" onClick={confirmInstallAll}>
-              Confirmar
-            </Button>
-          </Space>
-        }
-      >
-        <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
-          Serão instalados os seguintes itens (pré-requisitos primeiro):
-        </Text>
-        <List
-          size="small"
-          dataSource={installList}
-          renderItem={(r) => (
-            <List.Item>
-              <div>
-                <strong>{r.name}</strong> — {r.price} eb
-                {r.humanityCost != null && r.humanityCost > 0 && (
-                  <>, {r.humanityCost} CH</>
-                )}
-                {r.description && (
-                  <div style={{ marginTop: 4, color: "var(--color-text-secondary)" }}>
-                    {r.description}
+            <List
+              size="small"
+              dataSource={installList}
+              renderItem={(r) => (
+                <List.Item>
+                  <div>
+                    <strong>{r.name}</strong> — {r.price} eb
+                    {r.humanityCost != null && r.humanityCost > 0 && (
+                      <>, {r.humanityCost} CH</>
+                    )}
+                    {r.description && (
+                      <div style={{ marginTop: 4, color: "var(--color-text-secondary)" }}>
+                        {r.description}
+                      </div>
+                    )}
                   </div>
-                )}
+                </List.Item>
+              )}
+            />
+            <div style={{ marginTop: 12 }}>
+              <strong>Total:</strong>{" "}
+              {installList.reduce((s, r) => s + r.price, 0)} eb
+              {(() => {
+                const ch = installList.reduce((s, r) => s + (r.humanityCost ?? 0), 0);
+                return ch > 0 ? `, ${ch} CH` : "";
+              })()}
+            </div>
+            {installAllWouldReduceBelow20 && (
+              <Text type="danger" style={{ display: "block", marginTop: 8, fontSize: 12 }}>
+                {LOW_HUMANITY_WARNING}
+              </Text>
+            )}
+          </>
+        ) : (
+          <Form form={form} layout="vertical">
+            <Form.Item name="referenceId" hidden>
+              <Input type="hidden" />
+            </Form.Item>
+            <Form.Item label="Escolher da referência" style={{ marginBottom: 12 }}>
+              <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid var(--color-border)", borderRadius: 6, padding: 8 }}>
+                {refByCategory.map(({ category, label, items }) => (
+                  <div key={category} style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--color-text-secondary)" }}>{label}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      {items.map((r) => {
+                        const selected = refId === r.id;
+                        const tooltipTitle = r.description ?? r.name;
+                        return (
+                          <Tooltip key={r.id} title={tooltipTitle} placement="left">
+                            <button
+                              type="button"
+                              onClick={() => form.setFieldsValue({ referenceId: r.id, name: r.name, humanityCost: r.humanityCost })}
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                width: "100%",
+                                textAlign: "left",
+                                padding: "6px 10px",
+                                borderRadius: 4,
+                                border: "1px solid transparent",
+                                background: selected ? "var(--color-primary-bg)" : "transparent",
+                                color: selected ? "var(--color-primary)" : "var(--color-text)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                              <span style={{ flexShrink: 0, marginLeft: 8 }}>
+                                {r.price} eb
+                                {r.humanityCost != null && r.humanityCost > 0 ? `, ${r.humanityCost} CH` : ""}
+                              </span>
+                            </button>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <Button type="link" size="small" onClick={() => form.setFieldsValue({ referenceId: undefined, name: "", humanityCost: undefined })} style={{ marginTop: 4 }}>
+                  Limpar / entrada custom
+                </Button>
               </div>
-            </List.Item>
-          )}
-        />
-        <div style={{ marginTop: 12 }}>
-          <strong>Total:</strong>{" "}
-          {installList.reduce((s, r) => s + r.price, 0)} eb
-          {(() => {
-            const ch = installList.reduce((s, r) => s + (r.humanityCost ?? 0), 0);
-            return ch > 0 ? `, ${ch} CH` : "";
-          })()}
-        </div>
+            </Form.Item>
+            {missingPrereqs.length > 0 && selectedRef && (
+              <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                Pré-requisitos em falta:{" "}
+                {missingPrereqs
+                  .map((id) => referenceCyberware.find((r) => r.id === id)?.name ?? id)
+                  .join(", ")}
+                . Use &quot;Instalar tudo&quot; para instalar pré-requisitos e este item.
+              </Text>
+            )}
+            <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item label="Custo de humanidade">
+              <Space wrap>
+                <Form.Item name="humanityCost" noStyle>
+                  <InputNumber
+                    min={0}
+                    style={{ width: 100 }}
+                    placeholder={selectedRef?.humanityCost != null ? String(selectedRef.humanityCost) : undefined}
+                  />
+                </Form.Item>
+                {selectedRef?.humanityCostDice && (
+                  <Button
+                    type="default"
+                    onClick={() => {
+                      const parsed = parseDamageDice(selectedRef.humanityCostDice!);
+                      if (!parsed) return;
+                      const { sum } = rollDice(parsed.count, parsed.size);
+                      form.setFieldsValue({ humanityCost: sum });
+                      message.success(`${selectedRef.humanityCostDice}: ${sum} CH — use "Reduzir humanidade" para descontar.`);
+                    }}
+                  >
+                    Rolar
+                  </Button>
+                )}
+              </Space>
+            </Form.Item>
+            {singleAddWouldReduceBelow20 && (
+              <Text type="danger" style={{ display: "block", marginBottom: 16, fontSize: 12 }}>
+                {LOW_HUMANITY_WARNING}
+              </Text>
+            )}
+            <Form.Item name="notes" label="Notas">
+              <Input />
+            </Form.Item>
+          </Form>
+        )}
       </Modal>
     </>
   );

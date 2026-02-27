@@ -30,6 +30,8 @@ export interface ReferenceCyberware {
   /** Category for grouping (Fashionware, Neuralware, etc.). */
   category: string;
   price: number;
+  /** Dice for rolling humanity cost at runtime (e.g. "2d6" => 2d6 CH). When set, UI shows roll button. */
+  humanityCostDice?: string;
   humanityCost?: number;
   description?: string;
   /** Where it can be installed. */
