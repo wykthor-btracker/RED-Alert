@@ -41,6 +41,8 @@ export interface CyberwareEntry {
   referenceId?: string;
   notes?: string;
   humanityCost?: number;
+  /** Whether this cyberware is worn and applies bonuses (default true when added). */
+  worn?: boolean;
 }
 
 /** Contact: linkable via slug (from name). */

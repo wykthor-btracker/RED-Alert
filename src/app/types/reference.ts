@@ -20,14 +20,28 @@ export interface ReferenceWearable extends ReferenceItem {
   stoppingPowerHead?: number;
 }
 
+/** Installation location for cyberware. */
+export type CyberwareInstallation = "loja" | "clinica" | "hospital" | "n/a";
+
 /** Reference cyberware. */
 export interface ReferenceCyberware {
   id: string;
   name: string;
-  category?: string;
+  /** Category for grouping (Fashionware, Neuralware, etc.). */
+  category: string;
   price: number;
   humanityCost?: number;
   description?: string;
+  /** Where it can be installed. */
+  installation?: CyberwareInstallation;
+  /** Optional slot count (for foundation pieces). */
+  slotOptions?: number;
+  /** Reference ids this requires (e.g. Link Neural). */
+  requires?: string[];
+  /** Skill bonuses when worn: skill id -> bonus. */
+  skillBonuses?: { skillId: string; bonus: number }[];
+  /** Slug for @mention and scroll-to (defaults from id). */
+  slug?: string;
 }
 
 /** Skill category for grouping in the UI. "outros" = custom skills not in reference. */

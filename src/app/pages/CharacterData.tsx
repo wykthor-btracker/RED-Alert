@@ -9,6 +9,7 @@ import {
   Input,
   InputNumber,
   List,
+  message,
   Modal,
   Row,
   Col,
@@ -18,6 +19,7 @@ import {
   Table,
   Tooltip,
   Typography,
+  Popover,
 } from "antd";
 import {
   DeleteOutlined,
@@ -57,9 +59,9 @@ import {
   type RangedWeaponTypeKey,
   type WeaponTypeKey,
 } from "@/data/weaponRangeTables";
-import type { ReferenceWearable } from "@/app/types/reference";
+import type { ReferenceWearable, ReferenceCyberware } from "@/app/types/reference";
 import { referenceConsumables } from "@/data/reference/consumables";
-import { referenceCyberware } from "@/data/reference/cyberware";
+import { referenceCyberware, CYBERWARE_CATEGORY_LABELS } from "@/data/reference/cyberware";
 import { PRESETS, resolveCharacterIcon } from "@/data/characterPresetIcons";
 
 const { Title, Text } = Typography;
@@ -93,9 +95,11 @@ export default function CharacterData() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [deleteSheetConfirmOpen, setDeleteSheetConfirmOpen] = useState(false);
+  const [mainCollapseOpen, setMainCollapseOpen] = useState<string[]>([]);
   const contactRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const noteRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const iconFileInputRef = useRef<HTMLInputElement>(null);
+  const scrollToCyberwareRef = useRef<((slug: string) => void) | null>(null);
 
   const data = userData ?? null;
   const canEdit = isHost || connected;
@@ -178,7 +182,7 @@ export default function CharacterData() {
       const ref = referenceSkills.find((r) => r.id === skillKey);
       const entry = data.skills[skillKey];
       const nextEntry: SkillEntry = ref
-        ? { skillId: ref.id, value, ...(entry ?? {}) }
+        ? { skillId: ref.id, ...(entry ?? {}), value }
         : { ...(entry ?? { name: skillKey, baseStat: "INT" }), value };
       setSkills({ ...data.skills, [skillKey]: nextEntry });
     },
@@ -284,6 +288,28 @@ export default function CharacterData() {
       items: byCat.get(category)!,
     })).filter((g) => g.items.length > 0);
   }, [skillEntriesWithMeta]);
+
+  /** Skill id -> { bonus, sources: { slug, bonus }[] } from worn cyberware. */
+  const skillBonusesFromCyberware = useMemo(() => {
+    const map: Record<string, { bonus: number; sources: { slug: string; bonus: number }[] }> = {};
+    for (const entry of data?.cyberware ?? []) {
+      if (entry.worn === false) continue;
+      const ref = entry.referenceId ? referenceCyberware.find((r) => r.id === entry.referenceId) : null;
+      if (!ref?.skillBonuses) continue;
+      const slug = ref.slug ?? ref.id;
+      for (const { skillId, bonus } of ref.skillBonuses) {
+        if (!map[skillId]) map[skillId] = { bonus: 0, sources: [] };
+        map[skillId].bonus += bonus;
+        map[skillId].sources.push({ slug, bonus });
+      }
+    }
+    return map;
+  }, [data?.cyberware]);
+
+  const handleCyberwareSlugClick = useCallback((slug: string) => {
+    setMainCollapseOpen((prev) => (prev.includes("cyberware") ? prev : [...prev, "cyberware"]));
+    setTimeout(() => scrollToCyberwareRef.current?.(slug), 400);
+  }, []);
 
   // Host: first part of flow = list of saved characters
   const hostListBlock = isHost && (
@@ -544,7 +570,8 @@ export default function CharacterData() {
       </Form>
 
       <Collapse
-        defaultActiveKey={[]}
+        activeKey={mainCollapseOpen}
+        onChange={(keys) => setMainCollapseOpen(Array.isArray(keys) ? keys : [keys])}
         items={[
           {
             key: "stats",
@@ -576,7 +603,9 @@ export default function CharacterData() {
                     const right = items.slice(mid);
                     const renderSkill = (item: (typeof items)[0]) => {
                       const statVal = data.stats[item.baseStat] ?? 0;
-                      const sum = statVal + item.value;
+                      const bonusData = skillBonusesFromCyberware[item.key];
+                      const bonus = bonusData?.bonus ?? 0;
+                      const total = statVal + item.value + bonus;
                       const isTechnical = item.category === "tecnica";
                       const nameStyle = isTechnical
                         ? {
@@ -588,6 +617,45 @@ export default function CharacterData() {
                           }
                         : undefined;
                       const metaStyle = isTechnical ? { fontSize: 11 } : undefined;
+                      const bonusPopover =
+                        bonus > 0 && bonusData?.sources?.length ? (
+                          <Popover
+                            trigger="click"
+                            content={
+                              <div style={{ maxWidth: 280 }}>
+                                <div style={{ marginBottom: 6, fontWeight: 600 }}>Bônus de cyberware</div>
+                                {bonusData.sources.map(({ slug, bonus: b }) => (
+                                  <div key={slug}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCyberwareSlugClick(slug)}
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        padding: 0,
+                                        cursor: "pointer",
+                                        color: "#1677ff",
+                                        textDecoration: "underline",
+                                        font: "inherit",
+                                      }}
+                                    >
+                                      @{slug}
+                                    </button>
+                                    {" "}
+                                    (+{b})
+                                  </div>
+                                ))}
+                              </div>
+                            }
+                          >
+                            <span style={{ cursor: "pointer", textDecoration: "underline", color: "#1677ff" }}>
+                              = {statVal + item.value}
+                              {bonus > 0 ? ` + ${bonus}(cyber) = ${total}` : ` = ${total}`}
+                            </span>
+                          </Popover>
+                        ) : (
+                          <Text style={metaStyle}>= {total}</Text>
+                        );
                       return (
                         <List.Item
                           key={item.key}
@@ -616,7 +684,7 @@ export default function CharacterData() {
                             <Text type="secondary" style={metaStyle}>
                               ({item.baseStat})
                             </Text>
-                            <Text style={metaStyle}>= {sum}</Text>
+                            {bonusPopover}
                           </Space>
                         </List.Item>
                       );
@@ -723,6 +791,7 @@ export default function CharacterData() {
                 cyberware={data.cyberware}
                 canEdit={canEdit}
                 updateData={updateData}
+                scrollToCyberwareRef={scrollToCyberwareRef}
               />
             ),
           },
@@ -1483,17 +1552,110 @@ function InventorySection({
   );
 }
 
+const CYBERWARE_CATEGORY_ORDER = [
+  "Fashionware",
+  "Neuralware",
+  "Cyberópticos",
+  "Cyberaudio",
+  "Cyberware Interno",
+  "Cyberware Externo",
+  "Cybermembros",
+  "Borgware",
+];
+
+/** Ref ids already on the character (from referenceId). */
+function getInstalledRefIds(cyberware: CyberwareEntry[]): Set<string> {
+  const set = new Set<string>();
+  cyberware.forEach((e) => {
+    if (e.referenceId) set.add(e.referenceId);
+  });
+  return set;
+}
+
+/** Missing prerequisite ref ids for this ref (not yet installed). */
+function getMissingPrereqs(
+  ref: ReferenceCyberware | null,
+  installedIds: Set<string>,
+): string[] {
+  if (!ref?.requires?.length) return [];
+  return ref.requires.filter((id) => !installedIds.has(id));
+}
+
+/**
+ * Returns refs to install in dependency order (prerequisites first), including the target.
+ * Only includes refs not already installed. Handles transitive requires.
+ */
+function getInstallOrder(
+  refList: ReferenceCyberware[],
+  targetId: string,
+  installedIds: Set<string>,
+): ReferenceCyberware[] {
+  const refMap = new Map(refList.map((r) => [r.id, r]));
+
+  // Collect full set of ref ids to add (target + transitive missing prereqs)
+  const toAddIds = new Set<string>();
+  function collect(id: string) {
+    if (toAddIds.has(id)) return;
+    const ref = refMap.get(id);
+    if (!ref) return;
+    toAddIds.add(id);
+    (ref.requires ?? []).forEach(collect);
+  }
+  collect(targetId);
+
+  // Keep only those not already installed
+  const missing = [...toAddIds].filter((id) => !installedIds.has(id));
+  if (missing.length === 0) return [];
+
+  const remaining = new Set(missing);
+  const ordered: string[] = [];
+  while (remaining.size > 0) {
+    let found = false;
+    for (const id of remaining) {
+      const ref = refMap.get(id);
+      const reqs = ref?.requires ?? [];
+      const allSatisfied = reqs.every(
+        (r) => installedIds.has(r) || ordered.includes(r),
+      );
+      if (allSatisfied) {
+        ordered.push(id);
+        remaining.delete(id);
+        found = true;
+        break;
+      }
+    }
+    if (!found) break;
+  }
+
+  return ordered.map((id) => refMap.get(id)!).filter(Boolean);
+}
+
 function CyberwareSection({
   cyberware,
   canEdit,
   updateData,
+  scrollToCyberwareRef,
 }: {
   cyberware: CyberwareEntry[];
   canEdit: boolean;
   updateData: (updater: (prev: CharacterDataT) => CharacterDataT) => void;
+  scrollToCyberwareRef: React.MutableRefObject<((slug: string) => void) | null>;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
+  const [cyberwareCategoryOpen, setCyberwareCategoryOpen] = useState<string[]>([]);
+  const [installAllConfirmOpen, setInstallAllConfirmOpen] = useState(false);
+  const [installList, setInstallList] = useState<ReferenceCyberware[]>([]);
+
+  const installedIds = useMemo(() => getInstalledRefIds(cyberware), [cyberware]);
+  const refId = Form.useWatch("referenceId", form);
+  const selectedRef = refId
+    ? referenceCyberware.find((r) => r.id === refId) ?? null
+    : null;
+  const missingPrereqs = useMemo(
+    () => getMissingPrereqs(selectedRef, installedIds),
+    [selectedRef, installedIds],
+  );
 
   const add = (entry: CyberwareEntry) => {
     updateData((d) => ({ ...d, cyberware: [...d.cyberware, entry] }));
@@ -1503,43 +1665,165 @@ function CyberwareSection({
     updateData((d) => ({ ...d, cyberware: d.cyberware.filter((_, i) => i !== index) }));
   };
 
+  const toggleWorn = (index: number) => {
+    updateData((d) => ({
+      ...d,
+      cyberware: d.cyberware.map((e, i) => (i === index ? { ...e, worn: e.worn === false ? true : false } : e)),
+    }));
+  };
+
+  scrollToCyberwareRef.current = (slug: string) => {
+    const ref = referenceCyberware.find((r) => (r.slug ?? r.id) === slug || r.id === slug);
+    const category = ref?.category;
+    if (category) {
+      setCyberwareCategoryOpen((prev) => (prev.includes(category) ? prev : [...prev, category]));
+    }
+    setTimeout(() => {
+      const el = document.querySelector(`[data-cyberware-slug="${slug}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+  };
+
+  const byCategory = useMemo(() => {
+    const map = new Map<string, { entry: CyberwareEntry; index: number }[]>();
+    cyberware.forEach((entry, index) => {
+      const ref = entry.referenceId ? referenceCyberware.find((r) => r.id === entry.referenceId) : null;
+      const cat = ref?.category ?? "Outros";
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push({ entry, index });
+    });
+    return map;
+  }, [cyberware]);
+
   const handleOk = () => {
     form.validateFields().then((vals) => {
+      const ref = vals.referenceId ? referenceCyberware.find((r) => r.id === vals.referenceId) : null;
+      const missing = ref ? getMissingPrereqs(ref, installedIds) : [];
+      if (missing.length > 0) {
+        const names = missing
+          .map((id) => referenceCyberware.find((r) => r.id === id)?.name ?? id)
+          .join(", ");
+        message.warning(
+          `Pré-requisitos em falta: ${names}. Adicione-os primeiro ou use "Instalar tudo".`,
+        );
+        return;
+      }
       add({
-        name: vals.name ?? "Cyberware",
+        name: vals.name ?? ref?.name ?? "Cyberware",
         referenceId: vals.referenceId,
         notes: vals.notes,
-        humanityCost: vals.humanityCost,
+        humanityCost: vals.humanityCost ?? ref?.humanityCost,
+        worn: true,
       });
       form.resetFields();
       setModalOpen(false);
     });
   };
 
+  const openInstallAllConfirm = () => {
+    if (!selectedRef) return;
+    const order = getInstallOrder(referenceCyberware, selectedRef.id, installedIds);
+    setInstallList(order);
+    setInstallAllConfirmOpen(true);
+  };
+
+  const confirmInstallAll = () => {
+    const newEntries: CyberwareEntry[] = installList.map((r) => ({
+      name: r.name,
+      referenceId: r.id,
+      notes: undefined,
+      humanityCost: r.humanityCost,
+      worn: true,
+    }));
+    updateData((d) => ({
+      ...d,
+      cyberware: [...d.cyberware, ...newEntries],
+    }));
+    form.resetFields();
+    setModalOpen(false);
+    setInstallAllConfirmOpen(false);
+    setInstallList([]);
+  };
+
   return (
     <>
-      <List
+      <Collapse
         size="small"
-        dataSource={cyberware}
-        renderItem={(item, idx) => (
-          <List.Item
-            actions={
-              canEdit
-                ? [<Button key="x" type="link" danger size="small" onClick={() => remove(idx)}>Remover</Button>]
-                : undefined
-            }
-          >
-            {item.name}
-            {item.notes ? ` — ${item.notes}` : ""}
-          </List.Item>
-        )}
+        activeKey={cyberwareCategoryOpen}
+        onChange={(keys) => setCyberwareCategoryOpen(Array.isArray(keys) ? keys : [keys])}
+        items={[
+          ...CYBERWARE_CATEGORY_ORDER.filter((cat) => byCategory.has(cat)),
+          ...Array.from(byCategory.keys()).filter((cat) => !CYBERWARE_CATEGORY_ORDER.includes(cat)),
+        ].map((category) => ({
+          key: category,
+          label: CYBERWARE_CATEGORY_LABELS[category] ?? category,
+          children: (
+            <List
+              size="small"
+              dataSource={byCategory.get(category)!}
+              renderItem={({ entry, index }) => {
+                const ref = entry.referenceId ? referenceCyberware.find((r) => r.id === entry.referenceId) : null;
+                const slug = ref?.slug ?? ref?.id ?? `custom-${index}`;
+                const worn = entry.worn !== false;
+                return (
+                  <List.Item
+                    key={index}
+                    data-cyberware-slug={slug}
+                    actions={
+                      canEdit
+                        ? [
+                            <Tooltip key="worn" title={worn ? "Instalado (bônus ativos)" : "Não instalado"}>
+                              <Switch size="small" checked={worn} onChange={() => toggleWorn(index)} />
+                            </Tooltip>,
+                            <Button key="x" type="link" danger size="small" onClick={() => remove(index)}>
+                              Remover
+                            </Button>,
+                          ]
+                        : undefined
+                    }
+                  >
+                    <Tooltip
+                      title={ref?.description ?? entry.notes ?? "Sem descrição"}
+                    >
+                      <span style={{ cursor: "help" }}>
+                        {entry.name}
+                        {entry.notes ? ` — ${entry.notes}` : ""}
+                      </span>
+                    </Tooltip>
+                  </List.Item>
+                );
+              }}
+            />
+          ),
+        }))}
       />
+      {byCategory.size === 0 && (
+        <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>Nenhum cyberware. Adicione para ver por categoria.</Text>
+      )}
       {canEdit && (
         <Button type="dashed" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
           Adicionar cyberware
         </Button>
       )}
-      <Modal title="Adicionar cyberware" open={modalOpen} onOk={handleOk} onCancel={() => setModalOpen(false)}>
+      <Modal
+        title="Adicionar cyberware"
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setModalOpen(false)}>Cancelar</Button>
+            {missingPrereqs.length > 0 && selectedRef ? (
+              <Button type="primary" onClick={openInstallAllConfirm}>
+                Instalar tudo
+              </Button>
+            ) : (
+              <Button type="primary" onClick={handleOk}>
+                Adicionar
+              </Button>
+            )}
+          </Space>
+        }
+      >
         <Form form={form} layout="vertical">
           <Form.Item name="referenceId" label="Da referência (opcional)">
             <Select
@@ -1559,6 +1843,15 @@ function CyberwareSection({
               }}
             />
           </Form.Item>
+          {missingPrereqs.length > 0 && selectedRef && (
+            <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+              Pré-requisitos em falta:{" "}
+              {missingPrereqs
+                .map((id) => referenceCyberware.find((r) => r.id === id)?.name ?? id)
+                .join(", ")}
+              . Use &quot;Instalar tudo&quot; para instalar pré-requisitos e este item.
+            </Text>
+          )}
           <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
@@ -1569,6 +1862,51 @@ function CyberwareSection({
             <Input />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="Instalar tudo — confirmação"
+        open={installAllConfirmOpen}
+        onCancel={() => setInstallAllConfirmOpen(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setInstallAllConfirmOpen(false)}>Voltar</Button>
+            <Button type="primary" onClick={confirmInstallAll}>
+              Confirmar
+            </Button>
+          </Space>
+        }
+      >
+        <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
+          Serão instalados os seguintes itens (pré-requisitos primeiro):
+        </Text>
+        <List
+          size="small"
+          dataSource={installList}
+          renderItem={(r) => (
+            <List.Item>
+              <div>
+                <strong>{r.name}</strong> — {r.price} eb
+                {r.humanityCost != null && r.humanityCost > 0 && (
+                  <>, {r.humanityCost} CH</>
+                )}
+                {r.description && (
+                  <div style={{ marginTop: 4, color: "var(--color-text-secondary)" }}>
+                    {r.description}
+                  </div>
+                )}
+              </div>
+            </List.Item>
+          )}
+        />
+        <div style={{ marginTop: 12 }}>
+          <strong>Total:</strong>{" "}
+          {installList.reduce((s, r) => s + r.price, 0)} eb
+          {(() => {
+            const ch = installList.reduce((s, r) => s + (r.humanityCost ?? 0), 0);
+            return ch > 0 ? `, ${ch} CH` : "";
+          })()}
+        </div>
       </Modal>
     </>
   );
