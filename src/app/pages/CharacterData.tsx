@@ -15,6 +15,7 @@ import {
   Select,
   Space,
   Switch,
+  Table,
   Tooltip,
   Typography,
 } from "antd";
@@ -44,8 +45,17 @@ import {
 } from "../types/character";
 import { referenceSkills, SKILL_CATEGORY_LABELS } from "@/data/reference/skills";
 import type { SkillCategoryKey } from "@/app/types/reference";
-import { referenceWeapons } from "@/data/reference/weapons";
+import { referenceWeapons, type ReferenceWeapon } from "@/data/reference/weapons";
 import { referenceWearables } from "@/data/reference/wearables";
+import {
+  RANGE_BANDS,
+  BASE_SHOT_DV,
+  AUTOFIRE_DV,
+  getAutofireRangeBands,
+  WEAPON_TYPE_LABELS,
+  type RangedWeaponTypeKey,
+  type WeaponTypeKey,
+} from "@/data/weaponRangeTables";
 import type { ReferenceWearable } from "@/app/types/reference";
 import { referenceConsumables } from "@/data/reference/consumables";
 import { referenceCyberware } from "@/data/reference/cyberware";
@@ -707,6 +717,199 @@ export default function CharacterData() {
   );
 }
 
+/** Parse "2d6" -> { count: 2, size: 6 }. Returns null if invalid. */
+function parseDamageDice(dice: string): { count: number; size: number } | null {
+  const m = dice.trim().match(/^(\d+)\s*d\s*(\d+)$/i);
+  if (!m) return null;
+  const count = parseInt(m[1], 10);
+  const size = parseInt(m[2], 10);
+  if (count < 1 || size < 1) return null;
+  return { count, size };
+}
+
+/** Roll count dice of size; return values and sum. */
+function rollDice(count: number, size: number): { rolls: number[]; sum: number } {
+  const rolls: number[] = [];
+  for (let i = 0; i < count; i++) {
+    rolls.push(Math.floor(Math.random() * size) + 1);
+  }
+  return { rolls, sum: rolls.reduce((a, b) => a + b, 0) };
+}
+
+function WeaponUseModal({
+  open,
+  onCancel,
+  weapon,
+  refWeapon,
+}: {
+  open: boolean;
+  onCancel: () => void;
+  weapon: InventoryEntry;
+  refWeapon: ReferenceWeapon | undefined;
+}) {
+  const { send, senderData } = useContext(MessageBusContext);
+  const weaponType = refWeapon?.weaponType;
+  const isMelee = weaponType === "melee";
+  const isRanged = weaponType && !isMelee;
+  const damageDice = refWeapon?.damageDice;
+  const hasAutofire = !!refWeapon?.autofire;
+
+  const rollAndSend = (label: string) => {
+    if (!damageDice || !senderData) return;
+    const parsed = parseDamageDice(damageDice);
+    if (!parsed) return;
+    const { rolls, sum } = rollDice(parsed.count, parsed.size);
+    const detail = rolls.length === 1 ? `${rolls[0]}` : `${rolls.join(" + ")} = ${sum}`;
+    const message = `${weapon.name} — ${label}: ${parsed.count}d${parsed.size} = ${detail}`;
+    send({
+      content: { message },
+      metadata: { sender: senderData, code: 2, type: "message", data: {} },
+    });
+  };
+
+  const baseShotDv = isRanged && weaponType in BASE_SHOT_DV ? BASE_SHOT_DV[weaponType as RangedWeaponTypeKey] : null;
+  const autofireDv = hasAutofire && weaponType && weaponType in AUTOFIRE_DV ? AUTOFIRE_DV[weaponType] : null;
+
+  const baseColumns = baseShotDv
+    ? [
+        { title: "Tipo de Arma", dataIndex: "band", key: "band" },
+        ...RANGE_BANDS.map((b, i) => ({
+          title: `${b} m/yds`,
+          dataIndex: String(i),
+          key: String(i),
+          render: (val: number | null) => val ?? "—",
+        })),
+      ]
+    : [];
+  const baseTableData = baseShotDv
+    ? [
+        {
+          key: "1",
+          band: WEAPON_TYPE_LABELS[weaponType as WeaponTypeKey],
+          ...Object.fromEntries(RANGE_BANDS.map((_, i) => [String(i), baseShotDv[i]])),
+        },
+      ]
+    : [];
+
+  const autofireBands = getAutofireRangeBands();
+  const autofireColumns = autofireDv
+    ? [
+        { title: "Tipo de Arma", dataIndex: "band", key: "band" },
+        ...autofireBands.map((b, i) => ({
+          title: `${b} m/yds`,
+          dataIndex: String(i),
+          key: String(i),
+          render: (val: number | null) => val ?? "—",
+        })),
+      ]
+    : [];
+  const autofireTableData = autofireDv
+    ? [
+        {
+          key: "1",
+          band: WEAPON_TYPE_LABELS[weaponType as WeaponTypeKey],
+          ...Object.fromEntries(autofireBands.map((_, i) => [String(i), autofireDv[i]])),
+        },
+      ]
+    : [];
+
+  return (
+    <Modal
+      title={`Usar: ${weapon.name}`}
+      open={open}
+      onCancel={onCancel}
+      footer={null}
+      width={Math.min(900, typeof window !== "undefined" ? window.innerWidth - 48 : 900)}
+    >
+      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {isRanged && baseShotDv && (
+          <>
+            <Text strong>DVs de disparo baseados na distância</Text>
+            <Table
+              size="small"
+              pagination={false}
+              columns={baseColumns}
+              dataSource={baseTableData}
+              bordered
+            />
+          </>
+        )}
+        {hasAutofire && autofireDv && (
+          <>
+            <Text strong>DVs de disparo automático baseados na distância</Text>
+            <Table
+              size="small"
+              pagination={false}
+              columns={autofireColumns}
+              dataSource={autofireTableData}
+              bordered
+            />
+          </>
+        )}
+        {isMelee && <Text>Corpo a corpo. Use a habilidade indicada na ficha para o teste de ataque.</Text>}
+        <Space wrap>
+          {isRanged && damageDice && (
+            <>
+              <Button type="primary" onClick={() => rollAndSend("Disparo padrão")}>
+                Disparo padrão
+              </Button>
+              <Button onClick={() => rollAndSend("Disparo mirado")}>Disparo mirado</Button>
+              {hasAutofire && (
+                <Button onClick={() => rollAndSend("Disparo automático")}>Disparo automático</Button>
+              )}
+            </>
+          )}
+          {isMelee && damageDice && (
+            <Button type="primary" onClick={() => rollAndSend("Golpe")}>
+              Golpe
+            </Button>
+          )}
+          {!damageDice && (isRanged || isMelee) && (
+            <Text type="secondary">Adicione a arma a partir da referência para rolar dano.</Text>
+          )}
+        </Space>
+        {(isRanged || isMelee) && (
+          <Card size="small" bordered style={{ marginTop: 8 }}>
+            <Text style={{ whiteSpace: "pre-line" }}>
+              {`Em um máximo de CDT 1 você pode mirar um único Ataque à Distância ou Corpo a Corpo por toda a sua ação com -8 em seu Teste para Mirar para qualquer uma dessas áreas especiais.
+Se você acertar, você causa o dano do ataque normalmente e também o alvo recebe um efeito adicional baseado na área especial que você acertou.`}
+            </Text>
+            <Table
+              size="small"
+              style={{ marginTop: 8 }}
+              pagination={false}
+              bordered
+              columns={[
+                { title: "Mirando em...", dataIndex: "target", key: "target" },
+                { title: "Efeito", dataIndex: "effect", key: "effect" },
+              ]}
+              dataSource={[
+                {
+                  key: "head",
+                  target: "Cabeça",
+                  effect: "Multiplique o dano que atravessa a armadura de cabeça do alvo por 2.",
+                },
+                {
+                  key: "held",
+                  target: "Item Segurado",
+                  effect:
+                    "Se um único ponto de dano passar pela armadura de seu alvo, ele deixa cair um item de sua escolha mantido em suas mãos. Ele cai no chão na frente deles.",
+                },
+                {
+                  key: "leg",
+                  target: "Perna",
+                  effect:
+                    "Se um único ponto de dano atravessa a armadura de seu alvo, seu alvo também sofre a lesão crítica de perna quebrada, se houver alguma perna restante que não esteja quebrada.",
+                },
+              ]}
+            />
+          </Card>
+        )}
+      </Space>
+    </Modal>
+  );
+}
+
 function InventorySection({
   weapons,
   wearables,
@@ -723,6 +926,8 @@ function InventorySection({
   const [addModal, setAddModal] = useState<"weapon" | "wearable" | "consumable" | null>(null);
   /** When adding wearable from Armadura or Capacete section, so custom items get equipmentKind and SP fields. */
   const [addSection, setAddSection] = useState<"armor" | "helm" | null>(null);
+  /** Index of weapon being used (opens use-weapon modal). */
+  const [useWeaponIndex, setUseWeaponIndex] = useState<number | null>(null);
   const [addForm] = Form.useForm();
 
   const addEntry = (kind: "weapons" | "wearables" | "consumables", entry: InventoryEntry) => {
@@ -936,9 +1141,49 @@ function InventorySection({
     </Card>
   );
 
+  const weaponForModal = useWeaponIndex != null ? weapons[useWeaponIndex] ?? null : null;
+  const refWeaponForModal = weaponForModal?.referenceId
+    ? (referenceWeapons as ReferenceWeapon[]).find((r) => r.id === weaponForModal.referenceId)
+    : undefined;
+
   return (
     <>
-      {renderList("Armas", "weapons", weapons)}
+      <Card size="small" title="Armas" style={{ marginBottom: 12 }}>
+        <List
+          size="small"
+          dataSource={weapons}
+          renderItem={(item, idx) => (
+            <List.Item
+              actions={
+                canEdit
+                  ? [
+                      <Button key="use" type="link" size="small" onClick={() => setUseWeaponIndex(idx)}>
+                        Usar
+                      </Button>,
+                      <Button key="x" type="link" danger size="small" onClick={() => removeEntry("weapons", idx)}>
+                        Remover
+                      </Button>,
+                    ]
+                  : undefined
+              }
+            >
+              {item.name} × {item.quantity}
+              {item.notes ? ` — ${item.notes}` : ""}
+            </List.Item>
+          )}
+        />
+        {canEdit && (
+          <Button type="dashed" icon={<PlusOutlined />} onClick={() => handleAdd("weapon")}>
+            Adicionar
+          </Button>
+        )}
+      </Card>
+      <WeaponUseModal
+        open={useWeaponIndex !== null}
+        onCancel={() => setUseWeaponIndex(null)}
+        weapon={weaponForModal ?? { name: "", quantity: 1 }}
+        refWeapon={refWeaponForModal}
+      />
       {renderArmorHelmList("Armadura (corpo)", "armor", armorItems)}
       {renderArmorHelmList("Capacete (cabeça)", "helm", helmItems)}
       <Card size="small" title="Outros vestuário" style={{ marginBottom: 12 }}>
