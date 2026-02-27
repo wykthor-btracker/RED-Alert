@@ -54,7 +54,7 @@ export const referenceSkills: ReferenceSkill[] = [
   { id: "briga", name: "Briga", baseStat: "DEX", description: "Lutar com força bruta. Usa DEX.", category: "luta" },
   { id: "evasao", name: "Evasão", baseStat: "DEX", description: "Esquivar de ataques corpo a corpo; REF 8+ também para ataques à distância. Usa DEX.", category: "luta" },
   { id: "artes-marciais", name: "Artes Marciais", baseStat: "DEX", description: "Lutar com uma arte marcial (Karate, Taekwondo, Judo, Aikido). Escolha a arte ao aumentar. Usa DEX.", category: "luta" },
-  { id: "melee-weapon", name: "Arma Branca", baseStat: "DEX", description: "Lutar com armas brancas. Usa DEX.", category: "luta" },
+  { id: "melee-weapon", name: "Melee Weapon", baseStat: "DEX", description: "Lutar com armas brancas. Usa DEX.", category: "luta" },
   // Habilidades de performance
   { id: "atuacao", name: "Atuação", baseStat: "COOL", description: "Assumir um papel, disfarçar-se, fingir emoções e humores. Usa COOL.", category: "performance" },
   { id: "tocar-instrumentos", name: "Tocar Instrumentos", baseStat: "TECH", description: "Tocar profissionalmente um instrumento musical. Escolha o instrumento ao aumentar (canto, guitarra, etc.). Usa TECH.", category: "performance" },

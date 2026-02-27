@@ -127,8 +127,6 @@ export interface MessageBusContextValue {
   savedCharacters: { ownerName: string; peerId?: string; data: CharacterData }[];
   /** Host only: upsert a saved character by owner name. */
   setSavedCharacter: (ownerName: string, data: CharacterData) => void;
-  /** Host only: remove a saved character by owner name and close it if open. */
-  removeSavedCharacter: (ownerName: string) => void;
   /** Host only: which saved character is currently being edited (owner name). Null = not editing from list. */
   currentEditedOwnerName: string | null;
   /** Host only: set which character is being edited (for syncing saves back to list). */
@@ -181,7 +179,6 @@ const defaultContextValue: MessageBusContextValue = {
   importUserData: () => {},
   savedCharacters: [],
   setSavedCharacter: () => {},
-  removeSavedCharacter: () => {},
   currentEditedOwnerName: null,
   setCurrentEditedOwnerName: () => {},
   receivedSheets: [],

@@ -1058,22 +1058,6 @@ export function MessageBus (props: any) {
       });
     }
 
-    function removeSavedCharacter(ownerName: string) {
-      if (!isHost) return;
-      setSavedCharactersState((prev) => prev.filter((s) => s.ownerName !== ownerName));
-      if (currentEditedOwnerNameRef.current === ownerName) {
-        setUserDataState(null);
-        userDataRef.current = null;
-        currentEditedOwnerNameRef.current = null;
-        setCurrentEditedOwnerNameState(null);
-        const payload = {
-          metadata: { type: USER_DATA_SYNC_TYPE, code: 0, sender: senderData!, data: null },
-          content: {},
-        } as LogData;
-        connectionsRef.current.forEach((c) => { if (c.open) c.send(payload); });
-      }
-    }
-
     function setCurrentEditedOwnerName(name: string | null) {
       if (!isHost) return;
       currentEditedOwnerNameRef.current = name;
@@ -1159,7 +1143,6 @@ export function MessageBus (props: any) {
         importUserData,
         savedCharacters,
         setSavedCharacter,
-        removeSavedCharacter,
         currentEditedOwnerName,
         setCurrentEditedOwnerName,
         receivedSheets,
