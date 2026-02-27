@@ -1652,6 +1652,26 @@ function CyberwareSection({
   const selectedRef = refId
     ? referenceCyberware.find((r) => r.id === refId) ?? null
     : null;
+
+  /** Reference cyberware grouped by category for the add modal. */
+  const refByCategory = useMemo(() => {
+    const map = new Map<string, ReferenceCyberware[]>();
+    referenceCyberware.forEach((r) => {
+      const cat = r.category ?? "Outros";
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(r);
+    });
+    const order = [
+      ...CYBERWARE_CATEGORY_ORDER.filter((c) => map.has(c)),
+      ...Array.from(map.keys()).filter((c) => !CYBERWARE_CATEGORY_ORDER.includes(c)),
+    ];
+    return order.map((category) => ({
+      category,
+      label: CYBERWARE_CATEGORY_LABELS[category] ?? category,
+      items: map.get(category)!,
+    }));
+  }, []);
+
   const missingPrereqs = useMemo(
     () => getMissingPrereqs(selectedRef, installedIds),
     [selectedRef, installedIds],
@@ -1809,6 +1829,7 @@ function CyberwareSection({
         title="Adicionar cyberware"
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
+        width={560}
         footer={
           <Space>
             <Button onClick={() => setModalOpen(false)}>Cancelar</Button>
@@ -1825,23 +1846,53 @@ function CyberwareSection({
         }
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="referenceId" label="Da referência (opcional)">
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder="Custom..."
-              options={referenceCyberware.map((r) => ({
-                value: r.id,
-                label: `${r.name} (${r.price} eb)`,
-              }))}
-              onChange={(v) => {
-                const ref = referenceCyberware.find((r) => r.id === v);
-                if (ref) {
-                  form.setFieldsValue({ name: ref.name, humanityCost: ref.humanityCost });
-                }
-              }}
-            />
+          <Form.Item name="referenceId" hidden>
+            <Input type="hidden" />
+          </Form.Item>
+          <Form.Item label="Escolher da referência" style={{ marginBottom: 12 }}>
+            <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid var(--color-border)", borderRadius: 6, padding: 8 }}>
+              {refByCategory.map(({ category, label, items }) => (
+                <div key={category} style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--color-text-secondary)" }}>{label}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {items.map((r) => {
+                      const selected = refId === r.id;
+                      const tooltipTitle = r.description ?? r.name;
+                      return (
+                        <Tooltip key={r.id} title={tooltipTitle} placement="left">
+                          <button
+                            type="button"
+                            onClick={() => form.setFieldsValue({ referenceId: r.id, name: r.name, humanityCost: r.humanityCost })}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              width: "100%",
+                              textAlign: "left",
+                              padding: "6px 10px",
+                              borderRadius: 4,
+                              border: "1px solid transparent",
+                              background: selected ? "var(--color-primary-bg)" : "transparent",
+                              color: selected ? "var(--color-primary)" : "var(--color-text)",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                            <span style={{ flexShrink: 0, marginLeft: 8 }}>
+                              {r.price} eb
+                              {r.humanityCost != null && r.humanityCost > 0 ? `, ${r.humanityCost} CH` : ""}
+                            </span>
+                          </button>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              <Button type="link" size="small" onClick={() => form.setFieldsValue({ referenceId: undefined, name: "", humanityCost: undefined })} style={{ marginTop: 4 }}>
+                Limpar / entrada custom
+              </Button>
+            </div>
           </Form.Item>
           {missingPrereqs.length > 0 && selectedRef && (
             <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
