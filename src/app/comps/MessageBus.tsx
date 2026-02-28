@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
-import { InitiativeCombatant, LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext, SavedMap } from "../contexts/MessageBusContext";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Battle, InitiativeCombatant, LogData, LogDataMetadataSenderData, MapGridState, MessageBusContext, SavedMap } from "../contexts/MessageBusContext";
 import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
 import type { CharacterData, InventoryEntry } from "../types/character";
@@ -11,7 +11,7 @@ const KEEPALIVE_TYPE = "keepalive";
 const SYNC_TYPE = "sync";
 const MAP_GRID_SYNC_TYPE = "mapGridSync";
 const MAP_LIST_SYNC_TYPE = "mapListSync";
-const INITIATIVE_SYNC_TYPE = "initiativeSync";
+const BATTLES_SYNC_TYPE = "battlesSync";
 const INITIATIVE_UPDATE_FROM_CLIENT = "initiativeUpdateFromClient";
 const REQUEST_INITIAL_SYNC_TYPE = "requestInitialSync";
 const USER_DATA_SYNC_TYPE = "userDataSync";
@@ -80,7 +80,11 @@ type HostPersistState = {
   mapGrid: MapGridState | null;
   savedMaps: SavedMap[];
   currentMapId: string | null;
-  initiativeCombatants: InitiativeCombatant[];
+  /** @deprecated legacy; migrated to battles[0].combatants */
+  initiativeCombatants?: InitiativeCombatant[];
+  battles: Battle[];
+  currentBattleId: string | null;
+  mapBattleId: Record<string, string>;
   userData: CharacterData | null;
   currentEditedOwnerName: string | null;
 };
@@ -141,7 +145,9 @@ export function MessageBus (props: any) {
     const [mapGrid, setMapGridState] = useState<MapGridState | null>(null)
     const [savedMaps, setSavedMapsState] = useState<SavedMap[]>([])
     const [currentMapId, setCurrentMapIdState] = useState<string | null>(null)
-    const [initiativeCombatants, setInitiativeCombatantsState] = useState<InitiativeCombatant[]>([])
+    const [battles, setBattlesState] = useState<Battle[]>([])
+    const [currentBattleId, setCurrentBattleIdState] = useState<string | null>(null)
+    const [mapBattleId, setMapBattleIdState] = useState<Record<string, string>>({})
     const [userData, setUserDataState] = useState<CharacterData | null>(null)
     /** Host: saved characters (owner name + optional peerId for client-owned; data). */
     const [savedCharacters, setSavedCharactersState] = useState<Array<{ ownerName: string; peerId?: string; data: CharacterData }>>([])
@@ -160,7 +166,9 @@ export function MessageBus (props: any) {
     const mapGridRef = useRef<MapGridState | null>(null);
     const savedMapsRef = useRef<SavedMap[]>([]);
     const currentMapIdRef = useRef<string | null>(null);
-    const initiativeCombatantsRef = useRef<InitiativeCombatant[]>([]);
+    const battlesRef = useRef<Battle[]>([]);
+    const currentBattleIdRef = useRef<string | null>(null);
+    const mapBattleIdRef = useRef<Record<string, string>>({});
     const userDataRef = useRef<CharacterData | null>(null);
     const currentEditedOwnerNameRef = useRef<string | null>(null);
     const savedCharactersRef = useRef<Array<{ ownerName: string; peerId?: string; data: CharacterData }>>([]);
@@ -172,7 +180,9 @@ export function MessageBus (props: any) {
     mapGridRef.current = mapGrid;
     savedMapsRef.current = savedMaps;
     currentMapIdRef.current = currentMapId;
-    initiativeCombatantsRef.current = initiativeCombatants;
+    battlesRef.current = battles;
+    currentBattleIdRef.current = currentBattleId;
+    mapBattleIdRef.current = mapBattleId;
     userDataRef.current = userData;
 
     function clearKeepaliveInterval() {
@@ -217,19 +227,22 @@ export function MessageBus (props: any) {
         mapGrid,
         savedMaps,
         currentMapId,
-        initiativeCombatants,
+        battles,
+        currentBattleId,
+        mapBattleId,
         userData,
         currentEditedOwnerName,
       });
-    }, [isHost, savedCharacters, messageLog, mapGrid, savedMaps, currentMapId, initiativeCombatants, userData, currentEditedOwnerName]);
+    }, [isHost, savedCharacters, messageLog, mapGrid, savedMaps, currentMapId, battles, currentBattleId, mapBattleId, userData, currentEditedOwnerName]);
 
-    // When initiative combatants change (e.g. damage/heal/SP on Iniciativa or Mapa), push HP/SP back to the source sheet so Personagem tab stays in sync. Only update when sheet actually differs to avoid update loops.
+    // When any battle's combatants change (e.g. damage/heal/SP on Iniciativa or Mapa), push HP/SP back to the source sheet so Personagem tab stays in sync.
+    const allCombatants = battles.flatMap((b) => b.combatants);
     useEffect(() => {
-      if (!isHost || initiativeCombatants.length === 0) return;
+      if (!isHost || allCombatants.length === 0) return;
       const sheetDisplay = (s: { data: { sheetName?: string }; ownerName: string }) =>
         (s.data.sheetName ?? "").trim() || s.ownerName;
       const updates: { ownerName: string; wantSheet: string; newData: CharacterData; sheetData: CharacterData }[] = [];
-      initiativeCombatants.forEach((c) => {
+      allCombatants.forEach((c) => {
         if (!c.sourceOwnerName) return;
         const wantSheet = (c.sourceSheetName ?? "").trim() || c.sourceOwnerName;
         let sheetData: CharacterData | undefined;
@@ -267,7 +280,7 @@ export function MessageBus (props: any) {
           break;
         }
       }
-    }, [isHost, initiativeCombatants]);
+    }, [isHost, allCombatants]);
 
     function clearConnectionTimeout() {
       if (connectionTimeoutRef.current) {
@@ -446,12 +459,38 @@ export function MessageBus (props: any) {
           setMapGridState(restored.mapGrid);
           mapGridRef.current = restored.mapGrid;
         }
-        if (Array.isArray(restored.initiativeCombatants) && restored.initiativeCombatants.length > 0) {
+        // Restore battles (or migrate legacy single initiative list to one battle)
+        if (Array.isArray(restored.battles) && restored.battles.length > 0) {
+          const list = (restored.battles as Battle[]).filter(
+            (b) => b && typeof b === "object" && typeof b.id === "string" && typeof b.name === "string" && Array.isArray(b.combatants)
+          ).map((b) => ({
+            ...b,
+            combatants: b.combatants.filter(
+              (c) => c && typeof c === "object" && typeof c.id === "string" && typeof c.name === "string"
+            ),
+          }));
+          setBattlesState(list);
+          battlesRef.current = list;
+          if (restored.currentBattleId != null && typeof restored.currentBattleId === "string" && list.some((b) => b.id === restored.currentBattleId)) {
+            setCurrentBattleIdState(restored.currentBattleId);
+            currentBattleIdRef.current = restored.currentBattleId;
+          } else if (list.length > 0) {
+            setCurrentBattleIdState(list[0].id);
+            currentBattleIdRef.current = list[0].id;
+          }
+          if (restored.mapBattleId && typeof restored.mapBattleId === "object") {
+            setMapBattleIdState(restored.mapBattleId as Record<string, string>);
+            mapBattleIdRef.current = restored.mapBattleId as Record<string, string>;
+          }
+        } else if (Array.isArray(restored.initiativeCombatants) && restored.initiativeCombatants.length > 0) {
           const list = restored.initiativeCombatants.filter(
             (c) => c && typeof c === "object" && typeof c.id === "string" && typeof c.name === "string"
           );
-          setInitiativeCombatantsState(list);
-          initiativeCombatantsRef.current = list;
+          const legacyBattle: Battle = { id: `battle-${Date.now()}`, name: "Batalha 1", combatants: list };
+          setBattlesState([legacyBattle]);
+          battlesRef.current = [legacyBattle];
+          setCurrentBattleIdState(legacyBattle.id);
+          currentBattleIdRef.current = legacyBattle.id;
         }
         if (restored.userData && typeof restored.userData === "object" && typeof (restored.userData as CharacterData).stats === "object") {
           setUserDataState(restored.userData as CharacterData);
@@ -509,11 +548,13 @@ export function MessageBus (props: any) {
           }
           function sendInitialSyncToPeer(peerConn: DataConnection) {
             if (!peerConn.open) return;
-            const initiative = initiativeCombatantsRef.current;
-            if (initiative.length > 0) {
-              const list = initiative.map((c) => ({ ...c }));
-              peerConn.send({ metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData, data: list }, content: {} });
-            }
+            const battlesList = battlesRef.current;
+            const curBattleId = currentBattleIdRef.current;
+            const mapBattle = mapBattleIdRef.current;
+            peerConn.send({
+              metadata: { type: BATTLES_SYNC_TYPE, code: 0, sender: senderData, data: { battles: battlesList, currentBattleId: curBattleId, mapBattleId: mapBattle } },
+              content: {},
+            });
             const grid = mapGridRef.current;
             if (grid) peerConn.send({ metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData, data: grid }, content: {} });
             peerConn.send({
@@ -540,19 +581,24 @@ export function MessageBus (props: any) {
             if (payload.metadata?.type === KEEPALIVE_TYPE) return;
             if (payload.metadata?.type === MAP_GRID_SYNC_TYPE) return;
             if (payload.metadata?.type === MAP_LIST_SYNC_TYPE) return;
-            if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) return;
+            if (payload.metadata?.type === BATTLES_SYNC_TYPE) return;
             if (payload.metadata?.type === INITIATIVE_UPDATE_FROM_CLIENT) {
-              const list = payload.metadata?.data as InitiativeCombatant[] | undefined;
-              if (Array.isArray(list)) {
+              const d = payload.metadata?.data as { battleId?: string; combatants?: InitiativeCombatant[] } | undefined;
+              const battleId = d?.battleId;
+              const list = d?.combatants;
+              if (typeof battleId === "string" && Array.isArray(list)) {
                 const normalized = list.map((c) => ({
                   ...c,
                   name: typeof c?.name === "string" ? c.name : (c?.id ?? ""),
                 }));
                 setSkipNextSheetToCombatantSync(true);
-                setInitiativeCombatantsState(normalized);
-                initiativeCombatantsRef.current = normalized;
+                setBattlesState((prev) => {
+                  const next = prev.map((b) => b.id === battleId ? { ...b, combatants: normalized } : b);
+                  battlesRef.current = next;
+                  return next;
+                });
                 const syncPayload = {
-                  metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: normalized.map((c) => ({ ...c })) },
+                  metadata: { type: BATTLES_SYNC_TYPE, code: 0, sender: senderData!, data: { battles: battlesRef.current, currentBattleId: currentBattleIdRef.current, mapBattleId: mapBattleIdRef.current } },
                   content: {},
                 } as LogData;
                 connectionsRef.current.forEach((c) => { if (c.open) c.send(syncPayload); });
@@ -743,18 +789,27 @@ export function MessageBus (props: any) {
             if (d && "currentMapId" in d) setCurrentMapIdState(d.currentMapId ?? null);
             return;
           }
-          if (payload.metadata?.type === INITIATIVE_SYNC_TYPE) {
-            const list = payload.metadata?.data as InitiativeCombatant[] | undefined;
-            if (Array.isArray(list)) {
-              const normalized = list.map((c) => ({
-                ...c,
-                name: typeof c?.name === "string" ? c.name : (c?.id ?? ""),
+          if (payload.metadata?.type === BATTLES_SYNC_TYPE) {
+            const d = payload.metadata?.data as { battles?: Battle[]; currentBattleId?: string | null; mapBattleId?: Record<string, string> } | undefined;
+            if (d && Array.isArray(d.battles)) {
+              const normalized = d.battles.map((b) => ({
+                ...b,
+                combatants: (b.combatants ?? []).map((c) => ({
+                  ...c,
+                  name: typeof c?.name === "string" ? c.name : (c?.id ?? ""),
+                })),
               }));
-              setInitiativeCombatantsState(normalized);
-              initiativeCombatantsRef.current = normalized;
-            } else {
-              setInitiativeCombatantsState([]);
-              initiativeCombatantsRef.current = [];
+              setBattlesState(normalized);
+              battlesRef.current = normalized;
+            }
+            if (d && "currentBattleId" in d) {
+              const cid = d.currentBattleId ?? null;
+              setCurrentBattleIdState(cid);
+              currentBattleIdRef.current = cid;
+            }
+            if (d && d.mapBattleId && typeof d.mapBattleId === "object") {
+              setMapBattleIdState(d.mapBattleId);
+              mapBattleIdRef.current = d.mapBattleId;
             }
             return;
           }
@@ -958,6 +1013,10 @@ export function MessageBus (props: any) {
       const nextMaps = savedMapsRef.current.filter((m) => m.id !== id);
       setSavedMapsState(nextMaps);
       savedMapsRef.current = nextMaps;
+      const nextMapBattle = { ...mapBattleIdRef.current };
+      delete nextMapBattle[id];
+      mapBattleIdRef.current = nextMapBattle;
+      setMapBattleIdState(nextMapBattle);
       const wasCurrent = currentMapIdRef.current === id;
       if (wasCurrent) {
         const nextId = nextMaps.length > 0 ? nextMaps[0].id : null;
@@ -968,14 +1027,18 @@ export function MessageBus (props: any) {
         mapGridRef.current = nextGrid;
         const gridPayload = { metadata: { type: MAP_GRID_SYNC_TYPE, code: 0, sender: senderData!, data: nextGrid }, content: {} } as LogData;
         const listPayload = { metadata: { type: MAP_LIST_SYNC_TYPE, code: 0, sender: senderData!, data: { savedMaps: nextMaps, currentMapId: nextId } }, content: {} } as LogData;
+        const battlesPayload = { metadata: { type: BATTLES_SYNC_TYPE, code: 0, sender: senderData!, data: { battles: battlesRef.current, currentBattleId: currentBattleIdRef.current, mapBattleId: nextMapBattle } }, content: {} } as LogData;
         connectionsRef.current.forEach((c) => {
           if (c.open) {
             c.send(gridPayload);
             c.send(listPayload);
+            c.send(battlesPayload);
           }
         });
       } else {
         broadcastMapList();
+        const battlesPayload = { metadata: { type: BATTLES_SYNC_TYPE, code: 0, sender: senderData!, data: { battles: battlesRef.current, currentBattleId: currentBattleIdRef.current, mapBattleId: nextMapBattle } }, content: {} } as LogData;
+        connectionsRef.current.forEach((c) => { if (c.open) c.send(battlesPayload); });
       }
     }
 
@@ -1002,27 +1065,71 @@ export function MessageBus (props: any) {
       setMapGrid(nextState);
     }
 
-    function setInitiativeCombatants(listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) {
-      const next = typeof listOrUpdater === "function"
-        ? listOrUpdater(initiativeCombatantsRef.current)
-        : listOrUpdater;
-      setInitiativeCombatantsState(next);
-      initiativeCombatantsRef.current = next;
+    function getBattleCombatants(battleId: string | null): InitiativeCombatant[] {
+      if (!battleId) return [];
+      const b = battlesRef.current.find((x) => x.id === battleId);
+      return b?.combatants ?? [];
+    }
+
+    function setBattles(listOrUpdater: Battle[] | ((prev: Battle[]) => Battle[])) {
+      const next = typeof listOrUpdater === "function" ? listOrUpdater(battlesRef.current) : listOrUpdater;
+      setBattlesState(next);
+      battlesRef.current = next;
       if (isHost) {
         const payload = {
-          metadata: { type: INITIATIVE_SYNC_TYPE, code: 0, sender: senderData!, data: next.map((c) => ({ ...c })) },
+          metadata: { type: BATTLES_SYNC_TYPE, code: 0, sender: senderData!, data: { battles: next, currentBattleId: currentBattleIdRef.current, mapBattleId: mapBattleIdRef.current } },
           content: {},
         } as LogData;
-        connectionsRef.current.forEach((c) => {
-          if (c.open) c.send(payload);
-        });
+        connectionsRef.current.forEach((c) => { if (c.open) c.send(payload); });
+      }
+    }
+
+    const setCurrentBattleId = useCallback((id: string | null) => {
+      if (!isHost) return;
+      setCurrentBattleIdState(id);
+      currentBattleIdRef.current = id;
+      const payload = {
+        metadata: { type: BATTLES_SYNC_TYPE, code: 0, sender: senderData!, data: { battles: battlesRef.current, currentBattleId: id, mapBattleId: mapBattleIdRef.current } },
+        content: {},
+      } as LogData;
+      connectionsRef.current.forEach((c) => { if (c.open) c.send(payload); });
+    }, [isHost, senderData]);
+
+    function setMapBattleId(mapId: string, battleId: string | null) {
+      if (!isHost) return;
+      const nextMapBattle = { ...mapBattleIdRef.current };
+      if (battleId == null) delete nextMapBattle[mapId];
+      else nextMapBattle[mapId] = battleId;
+      mapBattleIdRef.current = nextMapBattle;
+      setMapBattleIdState(nextMapBattle);
+      const payload = {
+        metadata: { type: BATTLES_SYNC_TYPE, code: 0, sender: senderData!, data: { battles: battlesRef.current, currentBattleId: currentBattleIdRef.current, mapBattleId: nextMapBattle } },
+        content: {},
+      } as LogData;
+      connectionsRef.current.forEach((c) => { if (c.open) c.send(payload); });
+    }
+
+    const setBattleCombatants = useCallback((battleId: string, listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) => {
+      const prev = battlesRef.current.find((b) => b.id === battleId)?.combatants ?? [];
+      const next = typeof listOrUpdater === "function" ? listOrUpdater(prev) : listOrUpdater;
+      setBattlesState((battlesPrev) => {
+        const out = battlesPrev.map((b) => (b.id === battleId ? { ...b, combatants: next } : b));
+        battlesRef.current = out;
+        return out;
+      });
+      if (isHost) {
+        const payload = {
+          metadata: { type: BATTLES_SYNC_TYPE, code: 0, sender: senderData!, data: { battles: battlesRef.current, currentBattleId: currentBattleIdRef.current, mapBattleId: mapBattleIdRef.current } },
+          content: {},
+        } as LogData;
+        connectionsRef.current.forEach((c) => { if (c.open) c.send(payload); });
       } else if (conn?.open) {
         conn.send({
-          metadata: { type: INITIATIVE_UPDATE_FROM_CLIENT, code: 0, sender: senderData!, data: next.map((c) => ({ ...c })) },
+          metadata: { type: INITIATIVE_UPDATE_FROM_CLIENT, code: 0, sender: senderData!, data: { battleId, combatants: next.map((c) => ({ ...c })) } },
           content: {},
         } as LogData);
       }
-    }
+    }, [isHost, senderData, conn]);
 
     function setUserData(dataOrUpdater: CharacterData | null | ((prev: CharacterData | null) => CharacterData | null)) {
       const next = typeof dataOrUpdater === "function"
@@ -1147,8 +1254,14 @@ export function MessageBus (props: any) {
         deleteMap,
         setMapBackgroundImage,
         setMapBackgroundPosition,
-        initiativeCombatants,
-        setInitiativeCombatants,
+        battles,
+        setBattles,
+        currentBattleId,
+        setCurrentBattleId,
+        mapBattleId,
+        setMapBattleId,
+        getBattleCombatants,
+        setBattleCombatants,
         userData,
         setUserData,
         exportUserData,

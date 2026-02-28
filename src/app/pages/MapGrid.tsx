@@ -479,7 +479,9 @@ function CombatantHoverBars(props: {
 }
 
 export default function MapGrid() {
-  const { mapGrid, setMapGrid, isHost, initiativeCombatants, setInitiativeCombatants, send, senderData, savedMaps, currentMapId, setCurrentMapId, createMap, renameMap, setMapBackgroundImage, setMapBackgroundPosition } = useContext(MessageBusContext);
+  const { mapGrid, setMapGrid, isHost, battles, mapBattleId, setMapBattleId, getBattleCombatants, setBattleCombatants, send, senderData, savedMaps, currentMapId, setCurrentMapId, createMap, renameMap, setMapBackgroundImage, setMapBackgroundPosition } = useContext(MessageBusContext);
+  const mapBattle = currentMapId ? mapBattleId[currentMapId] ?? null : null;
+  const initiativeCombatants = getBattleCombatants(mapBattle);
 
   const broadcastUpdate = (message: string) => {
     if (send && senderData) {
@@ -691,7 +693,7 @@ export default function MapGrid() {
       row.map((val, ci) => (ri === r && ci === c ? null : val))
     );
     setMapGrid({ ...mapGrid, cells: nextCells });
-    setInitiativeCombatants((prev) => prev.filter((x) => x.id !== combatantId));
+    if (mapBattle) setBattleCombatants(mapBattle, (prev) => prev.filter((x) => x.id !== combatantId));
     broadcastUpdate(`Mapa: ${name} removido do mapa e da iniciativa`);
     setCellMenu(null);
   };
@@ -699,7 +701,7 @@ export default function MapGrid() {
   const applyDamage = (combatantId: string, amount: number) => {
     const combatant = initiativeCombatants.find((c) => c.id === combatantId);
     const name = combatant?.name ?? combatantId.slice(-6);
-    setInitiativeCombatants((prev) =>
+    if (mapBattle) setBattleCombatants(mapBattle, (prev) =>
       prev.map((c) =>
         c.id === combatantId
           ? { ...c, currentHealth: Math.max(0, (c.currentHealth ?? 0) - amount) }
@@ -714,7 +716,7 @@ export default function MapGrid() {
   const applyArmorDamage = (combatantId: string, amount: number) => {
     const combatant = initiativeCombatants.find((c) => c.id === combatantId);
     const name = combatant?.name ?? combatantId.slice(-6);
-    setInitiativeCombatants((prev) =>
+    if (mapBattle) setBattleCombatants(mapBattle, (prev) =>
       prev.map((c) =>
         c.id === combatantId
           ? { ...c, stoppingPower: Math.max(0, (c.stoppingPower ?? 0) - amount) }
@@ -727,7 +729,7 @@ export default function MapGrid() {
   };
 
   const toggleCriticalInjury = (combatantId: string, injuryId: string) => {
-    setInitiativeCombatants((prev) =>
+    if (mapBattle) setBattleCombatants(mapBattle, (prev) =>
       prev.map((c) =>
         c.id === combatantId
           ? {
@@ -769,7 +771,7 @@ export default function MapGrid() {
   const applyArmorHeadDamage = (combatantId: string, amount: number) => {
     const combatant = initiativeCombatants.find((c) => c.id === combatantId);
     const name = combatant?.name ?? combatantId.slice(-6);
-    setInitiativeCombatants((prev) =>
+    if (mapBattle) setBattleCombatants(mapBattle, (prev) =>
       prev.map((c) =>
         c.id === combatantId
           ? { ...c, stoppingPowerHead: Math.max(0, (c.stoppingPowerHead ?? c.stoppingPower ?? 0) - amount) }
@@ -1102,6 +1104,16 @@ export default function MapGrid() {
                   options={savedMaps.map((m) => ({ value: m.id, label: m.name }))}
                   allowClear
                 />
+                {isHost && currentMapId && (
+                  <Select
+                    placeholder="Batalha neste mapa"
+                    value={mapBattle || undefined}
+                    onChange={(battleId) => setMapBattleId(currentMapId, battleId ?? null)}
+                    style={{ minWidth: 160 }}
+                    allowClear
+                    options={battles.map((b) => ({ value: b.id, label: `${b.name} (${b.combatants.length})` }))}
+                  />
+                )}
                 {isHost && (
                   <>
                     <Button size="small" type="primary" onClick={() => createMap()}>

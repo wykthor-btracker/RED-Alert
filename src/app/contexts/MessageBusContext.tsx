@@ -67,6 +67,13 @@ export interface InitiativeCombatant {
   characterIcon?: string;
 }
 
+/** One initiative order (battle); can be assigned to multiple maps; each map has at most one battle. */
+export interface Battle {
+  id: string;
+  name: string;
+  combatants: InitiativeCombatant[];
+}
+
 export interface MessageBusContextValue {
   messageLog: LogData[];
   send: (data: LogData) => void;
@@ -111,10 +118,22 @@ export interface MessageBusContextValue {
   setMapBackgroundImage: (dataUrl: string | null) => void;
   /** Host only: set background position for the current map (x,y as percentage 0–100). */
   setMapBackgroundPosition: (x: number, y: number) => void;
-  /** Combatants from Iniciativa tab (id + name); host syncs to clients for map display. */
-  initiativeCombatants: InitiativeCombatant[];
-  /** Host only: set initiative list and broadcast to clients. Accepts new list or updater (prev => next). */
-  setInitiativeCombatants: (listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) => void;
+  /** All battles (each has its own initiative order). Host syncs to clients. */
+  battles: Battle[];
+  /** Host only: set battles and broadcast. Accepts new array or updater (prev => next). */
+  setBattles: (listOrUpdater: Battle[] | ((prev: Battle[]) => Battle[])) => void;
+  /** Which battle is selected in the Iniciativa tab (host only; synced to clients). */
+  currentBattleId: string | null;
+  /** Host only: set selected battle in Iniciativa tab. */
+  setCurrentBattleId: (id: string | null) => void;
+  /** Map id -> battle id. Each map has at most one battle; a battle can be on multiple maps. */
+  mapBattleId: Record<string, string>;
+  /** Host only: assign a battle to a map (or clear with null). */
+  setMapBattleId: (mapId: string, battleId: string | null) => void;
+  /** Get combatants for a battle (convenience). */
+  getBattleCombatants: (battleId: string | null) => InitiativeCombatant[];
+  /** Host only: set combatants for a battle and broadcast. */
+  setBattleCombatants: (battleId: string, listOrUpdater: InitiativeCombatant[] | ((prev: InitiativeCombatant[]) => InitiativeCombatant[])) => void;
   /** Character/user data; host is source of truth, synced to peers. */
   userData: CharacterData | null;
   /** Host: set and broadcast. Client: send userDataUpdate to host. */
@@ -173,8 +192,14 @@ const defaultContextValue: MessageBusContextValue = {
   deleteMap: () => {},
   setMapBackgroundImage: () => {},
   setMapBackgroundPosition: () => {},
-  initiativeCombatants: [],
-  setInitiativeCombatants: () => {},
+  battles: [],
+  setBattles: () => {},
+  currentBattleId: null,
+  setCurrentBattleId: () => {},
+  mapBattleId: {},
+  setMapBattleId: () => {},
+  getBattleCombatants: () => [],
+  setBattleCombatants: () => {},
   userData: null,
   setUserData: () => {},
   exportUserData: () => "",

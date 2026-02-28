@@ -40,6 +40,7 @@ import type {
   Contact,
   CustomHumanityLossEntry,
   CyberwareEntry,
+  Group,
   HumanityRecoveryEntry,
   InventoryEntry,
   Note,
@@ -109,6 +110,7 @@ export default function CharacterData() {
     setCurrentEditedOwnerName,
     receivedSheets,
     senderData,
+    send,
   } = useContext(MessageBusContext);
 
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -121,6 +123,7 @@ export default function CharacterData() {
   const [mainCollapseOpen, setMainCollapseOpen] = useState<string[]>([]);
   const contactRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const noteRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
+  const groupRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const iconFileInputRef = useRef<HTMLInputElement>(null);
   const scrollToCyberwareRef = useRef<((slug: string) => void) | null>(null);
   const [customHumanityLossForm] = Form.useForm<{ description: string; amount: number; type: "max" | "current" }>();
@@ -137,11 +140,17 @@ export default function CharacterData() {
     const out: MentionEntity[] = [];
     (data?.contacts ?? []).forEach((c) => out.push({ slug: c.slug, label: c.name, type: "contact" }));
     (data?.notes ?? []).forEach((n) => out.push({ slug: n.slug, label: n.title, type: "note" }));
+    (data?.groups ?? []).forEach((g) => out.push({ slug: g.slug, label: g.name, type: "group" }));
     return out;
-  }, [data?.contacts, data?.notes]);
+  }, [data?.contacts, data?.notes, data?.groups]);
 
-  const handleMentionClick = useCallback((slug: string, type: "contact" | "note") => {
-    const el = type === "contact" ? contactRefsMap.current[slug] : noteRefsMap.current[slug];
+  const handleMentionClick = useCallback((slug: string, type: "contact" | "note" | "group") => {
+    const el =
+      type === "contact"
+        ? contactRefsMap.current[slug]
+        : type === "note"
+          ? noteRefsMap.current[slug]
+          : groupRefsMap.current[slug];
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
@@ -192,6 +201,10 @@ export default function CharacterData() {
   const setHumanity = useCallback(
     (currentHumanity?: number, maxHumanity?: number) =>
       updateData((d) => ({ ...d, currentHumanity, maxHumanity })),
+    [updateData]
+  );
+  const setReputation = useCallback(
+    (reputation?: number) => updateData((d) => ({ ...d, reputation })),
     [updateData]
   );
 
@@ -626,6 +639,55 @@ export default function CharacterData() {
                     );
                   })}
                 </Form>
+                <Title level={5}>Reputação</Title>
+                <Space align="center" wrap style={{ marginBottom: 16 }}>
+                  <Form.Item label="Nível de Reputação" style={{ marginBottom: 0 }}>
+                    <InputNumber
+                      value={data.reputation ?? 0}
+                      onChange={(v) => setReputation(v ?? 0)}
+                      disabled={!canEdit}
+                      style={{ width: 72 }}
+                    />
+                  </Form.Item>
+                  <Tooltip title="Rolar 1d10 + COOL + Reputação (evento positivo). O resultado aparece no registo de atividade.">
+                    <Button
+                      type="default"
+                      onClick={() => {
+                        if (!data || !senderData) return;
+                        const { sum: d10 } = rollDice(1, 10);
+                        const cool = getEffectiveStat(data, "COOL");
+                        const rep = data.reputation ?? 0;
+                        const total = d10 + cool + rep;
+                        const msg = `Carão (+): 1d10 (${d10}) + COOL (${cool}) + Reputação (${rep}) = ${total}`;
+                        send({
+                          content: { message: msg },
+                          metadata: { sender: senderData, code: 2, type: "message", data: {} },
+                        });
+                      }}
+                    >
+                      + Carão
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title="Rolar 1d10 + COOL − Reputação (evento negativo/covardia). Se o seu Evento de Reputação for por covardia, o seu Nível de Reputação é tratado como um número negativo. O resultado aparece no registo de atividade.">
+                    <Button
+                      type="default"
+                      onClick={() => {
+                        if (!data || !senderData) return;
+                        const { sum: d10 } = rollDice(1, 10);
+                        const cool = getEffectiveStat(data, "COOL");
+                        const rep = data.reputation ?? 0;
+                        const total = d10 + cool - rep;
+                        const msg = `Carão (−): 1d10 (${d10}) + COOL (${cool}) − Reputação (${rep}) = ${total}`;
+                        send({
+                          content: { message: msg },
+                          metadata: { sender: senderData, code: 2, type: "message", data: {} },
+                        });
+                      }}
+                    >
+                      − Carão
+                    </Button>
+                  </Tooltip>
+                </Space>
                 <Title level={5}>Perícias</Title>
                 <Collapse
                   size="small"
@@ -918,17 +980,19 @@ export default function CharacterData() {
           },
           {
             key: "info",
-            label: "Informação (Contatos e Notas)",
+            label: "Informação (Contatos, Notas e Grupos)",
             children: (
               <InfoSection
                 contacts={data.contacts}
                 notes={data.notes}
+                groups={data.groups ?? []}
                 canEdit={canEdit}
                 updateData={updateData}
                 mentionEntities={mentionEntities}
                 onMentionClick={handleMentionClick}
                 contactRefsMap={contactRefsMap}
                 noteRefsMap={noteRefsMap}
+                groupRefsMap={groupRefsMap}
               />
             ),
           },
@@ -2503,26 +2567,32 @@ function CyberwareSection({
 function InfoSection({
   contacts,
   notes,
+  groups,
   canEdit,
   updateData,
   mentionEntities,
   onMentionClick,
   contactRefsMap,
   noteRefsMap,
+  groupRefsMap,
 }: {
   contacts: Contact[];
   notes: Note[];
+  groups: Group[];
   canEdit: boolean;
   updateData: (updater: (prev: CharacterDataT) => CharacterDataT) => void;
   mentionEntities: MentionEntity[];
-  onMentionClick: (slug: string, type: "contact" | "note") => void;
+  onMentionClick: (slug: string, type: "contact" | "note" | "group") => void;
   contactRefsMap: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
   noteRefsMap: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+  groupRefsMap: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
 }) {
   const [contactModal, setContactModal] = useState<Contact | null>(null);
   const [noteModal, setNoteModal] = useState<Note | null>(null);
+  const [groupModal, setGroupModal] = useState<Group | null>(null);
   const [contactForm] = Form.useForm();
   const [noteForm] = Form.useForm();
+  const [groupForm] = Form.useForm<{ name: string; reputation: number }>();
 
   const addContact = () => {
     contactForm.resetFields();
@@ -2602,6 +2672,37 @@ function InfoSection({
     updateData((d) => ({ ...d, notes: d.notes.filter((n) => n.id !== id) }));
   };
 
+  const addGroup = () => {
+    groupForm.resetFields();
+    setGroupModal({
+      id: nextId(),
+      name: "",
+      slug: "",
+      reputation: 0,
+    });
+  };
+
+  const saveGroup = () => {
+    groupForm.validateFields().then((vals) => {
+      const name = vals.name ?? "";
+      const slug = slugify(name);
+      const g: Group = {
+        id: (groupModal?.id) ?? nextId(),
+        name,
+        slug,
+        reputation: vals.reputation ?? 0,
+      };
+      const existing = groups.find((x) => x.id === g.id);
+      const list = existing ? groups.map((x) => (x.id === g.id ? g : x)) : [...(groups ?? []), g];
+      updateData((d) => ({ ...d, groups: list }));
+      setGroupModal(null);
+    });
+  };
+
+  const removeGroup = (id: string) => {
+    updateData((d) => ({ ...d, groups: (d.groups ?? []).filter((x) => x.id !== id) }));
+  };
+
   return (
     <>
       <Title level={5}>Contatos</Title>
@@ -2650,13 +2751,35 @@ function InfoSection({
       ))}
       {canEdit && <Button type="dashed" icon={<PlusOutlined />} onClick={addNote}>Adicionar nota</Button>}
 
+      <Title level={5}>Grupos</Title>
+      {(groups ?? []).map((g) => (
+        <Card
+          key={g.id}
+          size="small"
+          ref={(el) => { groupRefsMap.current[g.slug] = el; }}
+          style={{ marginBottom: 8 }}
+          title={g.name}
+          extra={
+            canEdit && (
+              <Space>
+                <Button size="small" onClick={() => { setGroupModal(g); groupForm.setFieldsValue({ name: g.name, reputation: g.reputation }); }}>Editar</Button>
+                <Button size="small" danger onClick={() => removeGroup(g.id)}>Remover</Button>
+              </Space>
+            )
+          }
+        >
+          <p><Text type="secondary">Reputação:</Text> {g.reputation}</p>
+        </Card>
+      ))}
+      {canEdit && <Button type="dashed" icon={<PlusOutlined />} onClick={addGroup} style={{ marginBottom: 16 }}>Adicionar grupo</Button>}
+
       <Modal title={contactModal?.id ? "Editar contacto" : "Novo contacto"} open={!!contactModal} onOk={saveContact} onCancel={() => setContactModal(null)} width={560}>
         <Form form={contactForm} layout="vertical" initialValues={contactModal ?? undefined}>
           <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
             <Input placeholder="Nome (usado para @menção)" />
           </Form.Item>
           <Form.Item name="shortDescription" label="Resumo">
-            <Input.TextArea rows={2} placeholder="Pode usar @slug para ligar a outros contactos/notas" />
+            <Input.TextArea rows={2} placeholder="Pode usar @slug para ligar a contactos/notas/grupos" />
           </Form.Item>
           <Form.Item name="longDescription" label="Descrição longa">
             <Input.TextArea rows={3} placeholder="Pode usar @slug" />
@@ -2673,7 +2796,18 @@ function InfoSection({
             <Input placeholder="Título (usado para @menção)" />
           </Form.Item>
           <Form.Item name="content" label="Conteúdo">
-            <Input.TextArea rows={5} placeholder="Pode usar @slug para ligar a contactos/notas" />
+            <Input.TextArea rows={5} placeholder="Pode usar @slug para ligar a contactos/notas/grupos" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal title={groupModal?.id ? "Editar grupo" : "Novo grupo"} open={!!groupModal} onOk={saveGroup} onCancel={() => setGroupModal(null)} width={400}>
+        <Form form={groupForm} layout="vertical" initialValues={groupModal ? { name: groupModal.name, reputation: groupModal.reputation } : undefined}>
+          <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
+            <Input placeholder="Nome (usado para @menção)" />
+          </Form.Item>
+          <Form.Item name="reputation" label="Reputação">
+            <InputNumber style={{ width: "100%" }} placeholder="Reputação com este grupo" />
           </Form.Item>
         </Form>
       </Modal>

@@ -81,6 +81,15 @@ export interface Note {
   slug: string;
 }
 
+/** Group: linkable via slug (from name); has its own reputation. */
+export interface Group {
+  id: string;
+  name: string;
+  slug: string;
+  /** Reputation with this group (free number). */
+  reputation: number;
+}
+
 /** Full character / user data (host-held, synced to peers). */
 export interface CharacterData {
   /** Display name for this sheet (e.g. character name or "Alice - Netrunner"). */
@@ -106,6 +115,9 @@ export interface CharacterData {
   humanityRecoveries?: HumanityRecoveryEntry[];
   contacts: Contact[];
   notes: Note[];
+  groups: Group[];
+  /** Global reputation level (can be negative for cowardice). */
+  reputation?: number;
 }
 
 export const DEFAULT_STAT_KEYS = [
@@ -127,6 +139,7 @@ export function createDefaultCharacterData(): CharacterData {
     cyberware: [],
     contacts: [],
     notes: [],
+    groups: [],
   };
 }
 

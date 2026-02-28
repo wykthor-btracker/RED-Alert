@@ -8,7 +8,7 @@ const MENTION_REGEX = /@([a-z0-9-]+)/gi;
 export interface MentionEntity {
   slug: string;
   label: string;
-  type: "contact" | "note";
+  type: "contact" | "note" | "group";
 }
 
 interface MentionTextProps {
@@ -17,7 +17,7 @@ interface MentionTextProps {
   /** Known entities for link resolution; slugs not in list render as plain text. */
   entities: MentionEntity[];
   /** Called when user clicks a mention link (e.g. to scroll to that section). */
-  onMentionClick?: (slug: string, type: "contact" | "note") => void;
+  onMentionClick?: (slug: string, type: "contact" | "note" | "group") => void;
   /** Optional class name for the container. */
   className?: string;
 }

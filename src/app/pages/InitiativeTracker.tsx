@@ -1,9 +1,10 @@
-import { Button, Col, FloatButton, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
-import { LeftOutlined, RightOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
+import { Button, Col, FloatButton, Form, Input, List, Modal, Row, Select, Switch, Typography } from "antd";
+import { EditOutlined, LeftOutlined, PlusOutlined, RightOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
 import QueueAnim from "rc-queue-anim";
 import { useContext, useEffect, useMemo, useState } from "react";
 import Fighter from "../comps/Fighter";
 import { InitiativeCombatant, LogData, MessageBusContext } from "../contexts/MessageBusContext";
+import type { FormProps } from "antd";
 import { getDerivedMaxHealth, getSheetStoppingPower } from "../types/character";
 import type { CharacterData } from "../types/character";
 import { referenceWearables } from "@/data/reference/wearables";
@@ -216,10 +217,14 @@ export default function InitiativeTracker(props: any) {
       stoppingPowerMax: number;
       initiative: number;
     }
-    const { send, senderData, isHost, initiativeCombatants, setInitiativeCombatants, savedCharacters, userData, currentEditedOwnerName, skipNextSheetToCombatantSync, setSkipNextSheetToCombatantSync } = useContext(MessageBusContext)
+    const { send, senderData, isHost, battles, setBattles, currentBattleId, setCurrentBattleId, getBattleCombatants, setBattleCombatants, savedCharacters, userData, currentEditedOwnerName, skipNextSheetToCombatantSync, setSkipNextSheetToCombatantSync } = useContext(MessageBusContext)
+    const initiativeCombatants = getBattleCombatants(currentBattleId);
     const data = useMemo(() => initiativeCombatants.map(toIdata), [initiativeCombatants])
+    const battleOptions = useMemo(() => battles.map((b) => ({ label: `${b.name} (${b.combatants.length})`, value: b.id })), [battles])
     const [toggleForm, setToggleForm]   = useState(false)
     const [currentTurnId, setCurrentTurnId] = useState<string | null>(null)
+    const [renameBattleOpen, setRenameBattleOpen] = useState(false)
+    const [renameBattleName, setRenameBattleName] = useState("")
 
     // Clear current turn if that combatant was removed (e.g. via Deletar on map)
     useEffect(() => {
@@ -230,11 +235,12 @@ export default function InitiativeTracker(props: any) {
 
     // When saved characters or the currently edited sheet (userData) change (e.g. equipado toggled in Personagem), refresh current and max SP for combatants that came from a sheet. Skip one run when we just pushed combatant→sheet (e.g. damage on Mapa) to avoid overwriting.
     useEffect(() => {
+      if (!currentBattleId) return;
       if (skipNextSheetToCombatantSync) {
         setSkipNextSheetToCombatantSync(false);
         return;
       }
-      setInitiativeCombatants((prev) => {
+      setBattleCombatants(currentBattleId, (prev) => {
         let changed = false;
         const sheetDisplay = (s: { data: { sheetName?: string }; ownerName: string }) =>
           (s.data.sheetName ?? "").trim() || s.ownerName;
@@ -291,9 +297,8 @@ export default function InitiativeTracker(props: any) {
         return changed ? next : prev;
       });
     // Intentionally omit skipNextSheetToCombatantSync from deps so we only run when sheet data changes.
-    // That avoids a second run when the skip flag is cleared, which could overwrite preset combatant edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- skip is read on each run when deps below change
-    }, [savedCharacters, userData, currentEditedOwnerName, setInitiativeCombatants, setSkipNextSheetToCombatantSync])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [savedCharacters, userData, currentEditedOwnerName, currentBattleId, setBattleCombatants, setSkipNextSheetToCombatantSync])
 
     const [tracking, setTracking]       = useState(false)
     const [addFighters, setAddFighters] = useState(false)
@@ -343,9 +348,10 @@ export default function InitiativeTracker(props: any) {
       broadcastUpdate(`Iniciativa: voltou para ${data[prevIdx].name}`)
     }
     const onFinish: FormProps<FieldType>['onFinish'] = (values) => {
+      if (!currentBattleId && !isHost) return;
       const sp = Number(values.SP);
       const displayName = nameForNewCombatant(initiativeCombatants, values.name);
-      const next: InitiativeCombatant[] = [...initiativeCombatants, {
+      const combatant: InitiativeCombatant = {
         id: nextId(),
         name: displayName,
         currentHealth: Number(values.health),
@@ -355,36 +361,52 @@ export default function InitiativeTracker(props: any) {
         stoppingPowerHead: sp,
         stoppingPowerHeadMax: sp,
         initiative: 0,
-      }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
-      setInitiativeCombatants(next)
-      broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`)
+      };
+      const nextList = [...initiativeCombatants, combatant].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
+      if (currentBattleId) {
+        setBattleCombatants(currentBattleId, nextList);
+      } else {
+        const newId = `battle-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        setBattles((prev) => [...prev, { id: newId, name: `Batalha ${prev.length + 1}`, combatants: nextList }]);
+        setCurrentBattleId(newId);
+      }
+      broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`);
     };
-    function addNPC (values: any) {
-        const initRoll = Math.floor(Math.random() * 10) + 1
-        const sp = Number(values.SP)
-        const displayName = nameForNewCombatant(initiativeCombatants, values.name)
-        const next: InitiativeCombatant[] = [...initiativeCombatants, {
-          id: nextId(),
-          name: displayName,
-          currentHealth: Number(values.health),
-          maxHealth: Number(values.health),
-          stoppingPower: sp,
-          stoppingPowerMax: sp,
-          stoppingPowerHead: sp,
-          stoppingPowerHeadMax: sp,
-          initiative: initRoll,
-        }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
-        setInitiativeCombatants(next)
-        broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`)
+    function addNPC(values: any) {
+      if (!currentBattleId && !isHost) return;
+      const initRoll = Math.floor(Math.random() * 10) + 1;
+      const sp = Number(values.SP);
+      const displayName = nameForNewCombatant(initiativeCombatants, values.name);
+      const combatant: InitiativeCombatant = {
+        id: nextId(),
+        name: displayName,
+        currentHealth: Number(values.health),
+        maxHealth: Number(values.health),
+        stoppingPower: sp,
+        stoppingPowerMax: sp,
+        stoppingPowerHead: sp,
+        stoppingPowerHeadMax: sp,
+        initiative: initRoll,
+      };
+      const nextList = [...initiativeCombatants, combatant].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
+      if (currentBattleId) {
+        setBattleCombatants(currentBattleId, nextList);
+      } else {
+        const newId = `battle-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        setBattles((prev) => [...prev, { id: newId, name: `Batalha ${prev.length + 1}`, combatants: nextList }]);
+        setCurrentBattleId(newId);
+      }
+      broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`);
     }
 
     function addSheetToBattle(entry: { ownerName: string; data: { sheetName?: string; currentHealth?: number; maxHealth?: number; stats?: Record<string, number>; wearables?: unknown[]; characterIcon?: string } }) {
+      if (!currentBattleId && !isHost) return;
       const sheet = entry.data as CharacterData;
       const displayName = nameForNewCombatant(initiativeCombatants, sheet.sheetName?.trim() || entry.ownerName);
       const sp = getSheetStoppingPower(sheet, referenceWearables);
       const derivedMax = getDerivedMaxHealth(sheet.stats?.BODY ?? 0, sheet.stats?.WILL ?? 0);
       const hp = Math.max(0, Number(sheet.currentHealth ?? derivedMax ?? 0)) || Math.max(1, derivedMax);
-      const next: InitiativeCombatant[] = [...initiativeCombatants, {
+      const combatant: InitiativeCombatant = {
         id: nextId(),
         name: displayName,
         currentHealth: hp,
@@ -399,61 +421,64 @@ export default function InitiativeTracker(props: any) {
         bodyArmorName: sp.bodyArmorName,
         headArmorName: sp.headArmorName,
         characterIcon: sheet.characterIcon,
-      }].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
-      setInitiativeCombatants(next);
+      };
+      const nextList = [...initiativeCombatants, combatant].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
+      if (currentBattleId) {
+        setBattleCombatants(currentBattleId, nextList);
+      } else {
+        const newId = `battle-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        setBattles((prev) => [...prev, { id: newId, name: `Batalha ${prev.length + 1}`, combatants: nextList }]);
+        setCurrentBattleId(newId);
+      }
       broadcastUpdate(`Iniciativa: ficha adicionada — ${displayName}`);
     }
     function onInitiativeChange(id: string, value: number) {
-      const intValue = Math.round(Number(value)) || 0
-      const next = initiativeCombatants.map((d) =>
-        d.id === id ? { ...d, initiative: intValue } : d
-      ).sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
-      setInitiativeCombatants(next)
+      if (!currentBattleId) return;
+      const intValue = Math.round(Number(value)) || 0;
+      setBattleCombatants(currentBattleId, (prev) =>
+        prev.map((d) => (d.id === id ? { ...d, initiative: intValue } : d)).sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
+      );
     }
     function onNameChange(id: string, newName: string) {
-      const trimmed = newName.trim()
-      if (!trimmed) return
-      setInitiativeCombatants((prev) =>
-        prev.map((d) => (d.id === id ? { ...d, name: trimmed } : d))
-      )
-      broadcastUpdate(`Iniciativa: nome alterado para "${trimmed}"`)
+      if (!currentBattleId) return;
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      setBattleCombatants(currentBattleId, (prev) => prev.map((d) => (d.id === id ? { ...d, name: trimmed } : d)));
+      broadcastUpdate(`Iniciativa: nome alterado para "${trimmed}"`);
     }
     function onHealthChange(id: string, currentHealth: number, maxHealth?: number) {
+      if (!currentBattleId) return;
       setSkipNextSheetToCombatantSync(true);
-      setInitiativeCombatants((prev) =>
+      setBattleCombatants(currentBattleId, (prev) =>
         prev.map((d) =>
-          d.id === id
-            ? { ...d, currentHealth, ...(maxHealth != null && { maxHealth }) }
-            : d
+          d.id === id ? { ...d, currentHealth, ...(maxHealth != null && { maxHealth }) } : d
         )
-      )
+      );
     }
     function onStoppingPowerChange(id: string, body: number, bodyMax?: number) {
+      if (!currentBattleId) return;
       setSkipNextSheetToCombatantSync(true);
-      setInitiativeCombatants((prev) =>
+      setBattleCombatants(currentBattleId, (prev) =>
         prev.map((d) =>
-          d.id === id
-            ? { ...d, stoppingPower: body, ...(bodyMax != null && { stoppingPowerMax: bodyMax }) }
-            : d
+          d.id === id ? { ...d, stoppingPower: body, ...(bodyMax != null && { stoppingPowerMax: bodyMax }) } : d
         )
-      )
+      );
     }
     function onStoppingPowerHeadChange(id: string, head: number, headMax?: number) {
+      if (!currentBattleId) return;
       setSkipNextSheetToCombatantSync(true);
-      setInitiativeCombatants((prev) =>
+      setBattleCombatants(currentBattleId, (prev) =>
         prev.map((d) =>
-          d.id === id
-            ? { ...d, stoppingPowerHead: head, ...(headMax != null && { stoppingPowerHeadMax: headMax }) }
-            : d
+          d.id === id ? { ...d, stoppingPowerHead: head, ...(headMax != null && { stoppingPowerHeadMax: headMax }) } : d
         )
-      )
+      );
     }
     function moveCombatant(fromIndex: number, toIndex: number) {
-      if (fromIndex === toIndex || toIndex < 0 || toIndex >= data.length) return
-      const next = [...initiativeCombatants]
-      const [removed] = next.splice(fromIndex, 1)
-      next.splice(toIndex, 0, removed)
-      setInitiativeCombatants(next)
+      if (!currentBattleId || fromIndex === toIndex || toIndex < 0 || toIndex >= data.length) return;
+      const next = [...initiativeCombatants];
+      const [removed] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, removed);
+      setBattleCombatants(currentBattleId, next);
     }
     const onFinishFailed: FormProps<FieldType>['onFinishFailed'] = (errorInfo) => {
       console.log('Failed:', errorInfo);
@@ -463,14 +488,65 @@ export default function InitiativeTracker(props: any) {
         <Col span={24} flex={1}>
           <>
             <Row align={"middle"} gutter={[16,16]}>
+              {isHost && (
+                <Col>
+                  <Select
+                    value={currentBattleId ?? undefined}
+                    onChange={(id) => {
+                      const next = id ?? null;
+                      if (next !== currentBattleId) setCurrentBattleId(next);
+                    }}
+                    placeholder="Batalha"
+                    style={{ minWidth: 160 }}
+                    options={battleOptions}
+                    allowClear
+                  />
+                </Col>
+              )}
+              {isHost && (
+                <Col>
+                  <Button
+                    icon={<EditOutlined />}
+                    disabled={!currentBattleId}
+                    onClick={() => {
+                      const battle = battles.find((b) => b.id === currentBattleId);
+                      if (battle) {
+                        setRenameBattleName(battle.name);
+                        setRenameBattleOpen(true);
+                      }
+                    }}
+                  >
+                    Renomear batalha
+                  </Button>
+                </Col>
+              )}
+              {isHost && (
+                <Col>
+                  <Button
+                    icon={<PlusOutlined />}
+                    onClick={() => {
+                      const newId = `battle-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                      setBattles((prev) => [...prev, { id: newId, name: `Batalha ${prev.length + 1}`, combatants: [] }]);
+                      setCurrentBattleId(newId);
+                    }}
+                  >
+                    Nova batalha
+                  </Button>
+                </Col>
+              )}
               <Col>
-                <Button 
-                  onClick={()=>{
-                    setInitiativeCombatants([])
-                    setCurrentTurnId(null)
-                    broadcastUpdate("Iniciativa: batalha limpa")
+                <Button
+                  disabled={!currentBattleId}
+                  onClick={() => {
+                    if (currentBattleId) {
+                      setBattleCombatants(currentBattleId, []);
+                      setCurrentTurnId(null);
+                      broadcastUpdate("Iniciativa: batalha limpa");
+                    }
                   }}
-                    >Limpar batalha</Button>
+                >
+                  Limpar batalha
+                </Button>
               </Col>
               <Col>
                 <Switch onChange={setToggleForm}/>
@@ -638,6 +714,34 @@ export default function InitiativeTracker(props: any) {
             />
           </FloatButton.Group>
         )}
+      <Modal
+        title="Renomear batalha"
+        open={renameBattleOpen}
+        onCancel={() => setRenameBattleOpen(false)}
+        onOk={() => {
+          const trimmed = renameBattleName.trim();
+          if (currentBattleId && trimmed) {
+            setBattles((prev) => prev.map((b) => (b.id === currentBattleId ? { ...b, name: trimmed } : b)));
+            setRenameBattleOpen(false);
+          }
+        }}
+        okText="OK"
+        cancelText="Cancelar"
+      >
+        <Input
+          value={renameBattleName}
+          onChange={(e) => setRenameBattleName(e.target.value)}
+          placeholder="Nome da batalha"
+          onPressEnter={(e) => {
+            e.preventDefault();
+            const trimmed = renameBattleName.trim();
+            if (currentBattleId && trimmed) {
+              setBattles((prev) => prev.map((b) => (b.id === currentBattleId ? { ...b, name: trimmed } : b)));
+              setRenameBattleOpen(false);
+            }
+          }}
+        />
+      </Modal>
       </Row>
     )
   }
