@@ -45,6 +45,16 @@ export interface CyberwareEntry {
   worn?: boolean;
 }
 
+/** Custom recorded humanity loss (trauma, therapy, etc.) for the rundown. */
+export interface CustomHumanityLossEntry {
+  id: string;
+  /** Short description (e.g. "Trauma em combate", "Terapia"). */
+  description: string;
+  amount: number;
+  /** Affects max humanity (e.g. permanent) or current only. */
+  type: "max" | "current";
+}
+
 /** Contact: linkable via slug (from name). */
 export interface Contact {
   id: string;
@@ -82,6 +92,8 @@ export interface CharacterData {
   wearables: InventoryEntry[];
   consumables: InventoryEntry[];
   cyberware: CyberwareEntry[];
+  /** Custom humanity reductions for rundown (and applied to max/current when added). */
+  customHumanityLoss?: CustomHumanityLossEntry[];
   contacts: Contact[];
   notes: Note[];
 }

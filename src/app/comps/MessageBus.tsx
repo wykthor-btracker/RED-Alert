@@ -1058,6 +1058,17 @@ export function MessageBus (props: any) {
       });
     }
 
+    function removeSavedCharacter(ownerName: string) {
+      if (!isHost) return;
+      setSavedCharactersState((prev) => prev.filter((s) => s.ownerName !== ownerName));
+      if (currentEditedOwnerNameRef.current === ownerName) {
+        currentEditedOwnerNameRef.current = null;
+        setCurrentEditedOwnerNameState(null);
+        setUserDataState(null);
+        userDataRef.current = null;
+      }
+    }
+
     function setCurrentEditedOwnerName(name: string | null) {
       if (!isHost) return;
       currentEditedOwnerNameRef.current = name;
@@ -1143,6 +1154,7 @@ export function MessageBus (props: any) {
         importUserData,
         savedCharacters,
         setSavedCharacter,
+        removeSavedCharacter,
         currentEditedOwnerName,
         setCurrentEditedOwnerName,
         receivedSheets,

@@ -44,6 +44,8 @@ export interface ReferenceCyberware {
   skillBonuses?: { skillId: string; bonus: number }[];
   /** Slug for @mention and scroll-to (defaults from id). */
   slug?: string;
+  /** If true, reduces max humanity by 4 when installed (otherwise 2). Also true when category is "Borgware". */
+  borgware?: boolean;
 }
 
 /** Skill category for grouping in the UI. "outros" = custom skills not in reference. */

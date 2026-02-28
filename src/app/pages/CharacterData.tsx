@@ -35,6 +35,7 @@ import { MentionText, type MentionEntity } from "../comps/MentionText";
 import type {
   CharacterData as CharacterDataT,
   Contact,
+  CustomHumanityLossEntry,
   CyberwareEntry,
   InventoryEntry,
   Note,
@@ -76,6 +77,19 @@ function statsBreakdown(stats: Record<string, number>, keys: string[] = DEFAULT_
   return parts.length ? parts.join(", ") : "—";
 }
 
+/** EMP is derived from humanity (tens digit); other stats from sheet. */
+function getEffectiveStat(data: CharacterDataT | null, key: string): number {
+  if (!data) return 0;
+  if (key === "EMP") return Math.floor((data.currentHumanity ?? 0) / 10);
+  return data.stats?.[key] ?? 0;
+}
+
+/** Stats for display (EMP derived from humanity). */
+function getStatsForDisplay(data: CharacterDataT | null): Record<string, number> {
+  if (!data?.stats) return {};
+  return { ...data.stats, EMP: Math.floor((data.currentHumanity ?? 0) / 10) };
+}
+
 export default function CharacterData() {
   const {
     userData,
@@ -95,11 +109,13 @@ export default function CharacterData() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [deleteSheetConfirmOpen, setDeleteSheetConfirmOpen] = useState(false);
+  const [customHumanityLossModalOpen, setCustomHumanityLossModalOpen] = useState(false);
   const [mainCollapseOpen, setMainCollapseOpen] = useState<string[]>([]);
   const contactRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const noteRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const iconFileInputRef = useRef<HTMLInputElement>(null);
   const scrollToCyberwareRef = useRef<((slug: string) => void) | null>(null);
+  const [customHumanityLossForm] = Form.useForm<{ description: string; amount: number; type: "max" | "current" }>();
 
   const data = userData ?? null;
   const canEdit = isHost || connected;
@@ -342,7 +358,7 @@ export default function CharacterData() {
                 ) : null}
                 <div style={{ marginTop: 4 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {statsBreakdown(entry.data.stats)}
+                    {statsBreakdown(getStatsForDisplay(entry.data))}
                   </Text>
                 </div>
                 <div style={{ marginTop: 2, fontSize: 12 }}>
@@ -383,7 +399,7 @@ export default function CharacterData() {
                 >
                   <List.Item.Meta
                     title={sheet.sheetName || "Sem nome"}
-                    description={statsBreakdown(sheet.stats ?? {})}
+                    description={statsBreakdown(getStatsForDisplay(sheet))}
                   />
                 </List.Item>
               )}
@@ -580,17 +596,21 @@ export default function CharacterData() {
               <>
                 <Title level={5}>Atributos</Title>
                 <Form layout="inline" style={{ marginBottom: 16 }}>
-                  {allStatKeys.map((key) => (
-                    <Form.Item key={key} label={key} style={{ marginRight: 16 }}>
-                      <InputNumber
-                        min={0}
-                        max={20}
-                        value={data.stats[key] ?? 0}
-                        onChange={(v) => setStat(key, v ?? 0)}
-                        disabled={!canEdit}
-                      />
-                    </Form.Item>
-                  ))}
+                  {allStatKeys.map((key) => {
+                    const isEmp = key === "EMP";
+                    const value = getEffectiveStat(data, key);
+                    return (
+                      <Form.Item key={key} label={key} style={{ marginRight: 16 }} tooltip={isEmp ? "Calculado a partir da humanidade (humanidade ÷ 10)" : undefined}>
+                        <InputNumber
+                          min={0}
+                          max={20}
+                          value={value}
+                          onChange={isEmp ? undefined : (v) => setStat(key, v ?? 0)}
+                          disabled={!canEdit || isEmp}
+                        />
+                      </Form.Item>
+                    );
+                  })}
                 </Form>
                 <Title level={5}>Perícias</Title>
                 <Collapse
@@ -602,7 +622,7 @@ export default function CharacterData() {
                     const left = items.slice(0, mid);
                     const right = items.slice(mid);
                     const renderSkill = (item: (typeof items)[0]) => {
-                      const statVal = data.stats[item.baseStat] ?? 0;
+                      const statVal = getEffectiveStat(data, item.baseStat);
                       const bonusData = skillBonusesFromCyberware[item.key];
                       const bonus = bonusData?.bonus ?? 0;
                       const total = statVal + item.value + bonus;
@@ -751,6 +771,12 @@ export default function CharacterData() {
                     />
                   </Form.Item>
                 </Space>
+                <HumanityRundown
+                  data={data}
+                  canEdit={canEdit}
+                  updateData={updateData}
+                  onAddCustomLoss={() => setCustomHumanityLossModalOpen(true)}
+                />
               </>
             ),
           },
@@ -829,6 +855,44 @@ export default function CharacterData() {
           placeholder="Colar JSON exportado..."
         />
       </Modal>
+
+      <Modal
+        title="Registrar perda de humanidade"
+        open={customHumanityLossModalOpen}
+        onOk={() => {
+          customHumanityLossForm.validateFields().then((vals) => {
+            const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const entry: CustomHumanityLossEntry = {
+              id,
+              description: vals.description.trim() || "Perda custom",
+              amount: vals.amount,
+              type: vals.type,
+            };
+            updateData((d) => {
+              const list = [...(d.customHumanityLoss ?? []), entry];
+              const newMax = entry.type === "max" ? Math.max(0, (d.maxHumanity ?? 0) - entry.amount) : d.maxHumanity;
+              const newCurrent = entry.type === "current" ? Math.max(0, (d.currentHumanity ?? 0) - entry.amount) : d.currentHumanity;
+              return { ...d, customHumanityLoss: list, maxHumanity: newMax, currentHumanity: newCurrent };
+            });
+            customHumanityLossForm.resetFields();
+            setCustomHumanityLossModalOpen(false);
+          });
+        }}
+        onCancel={() => setCustomHumanityLossModalOpen(false)}
+        okText="Registrar"
+      >
+        <Form form={customHumanityLossForm} layout="vertical" initialValues={{ type: "current", amount: 1 }}>
+          <Form.Item name="description" label="Descrição" rules={[{ required: true }]}>
+            <Input placeholder="Ex.: Trauma em combate, Terapia" />
+          </Form.Item>
+          <Form.Item name="amount" label="Quantidade" rules={[{ required: true }]}>
+            <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="type" label="Tipo">
+            <Select options={[{ value: "max", label: "Reduz humanidade máx." }, { value: "current", label: "Reduz humanidade atual" }]} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }
@@ -880,7 +944,7 @@ function resolveWeaponAttackMeta(
   if (!refSkill) return undefined;
 
   const baseStatKey = refSkill.baseStat;
-  const baseStatValue = data.stats?.[baseStatKey] ?? 0;
+  const baseStatValue = getEffectiveStat(data, baseStatKey);
   const skillEntry = data.skills?.[refSkill.id];
   const skillValue = skillEntry?.value ?? 0;
 
@@ -1634,6 +1698,85 @@ function getInstallOrder(
 const LOW_HUMANITY_WARNING =
   "Cuidado! Você vai se sentir mais máquina do que carne desse jeito...";
 
+/** Max humanity reduction per installed cyberware: 2 normally, 4 for borgware. Zero if humanity cost is 0. */
+function getMaxHumanityReductionForRef(
+  ref: ReferenceCyberware | null,
+  entry?: CyberwareEntry
+): number {
+  const cost = ref?.humanityCost ?? entry?.humanityCost ?? 0;
+  if (cost === 0) return 0;
+  return ref && (ref.borgware === true || ref.category === "Borgware") ? 4 : 2;
+}
+
+function HumanityRundown({
+  data,
+  canEdit,
+  updateData,
+  onAddCustomLoss,
+}: {
+  data: CharacterDataT | null;
+  canEdit: boolean;
+  updateData: (updater: (prev: CharacterDataT) => CharacterDataT) => void;
+  onAddCustomLoss: () => void;
+}) {
+  const cyberwareItems = useMemo(() => {
+    if (!data?.cyberware?.length) return [];
+    return data.cyberware
+      .map((entry, index) => {
+        const ref = entry.referenceId ? referenceCyberware.find((r) => r.id === entry.referenceId) ?? null : null;
+        const reduction = getMaxHumanityReductionForRef(ref, entry);
+        return reduction > 0 ? { key: `cyber-${index}`, label: `${entry.name}: -${reduction} máx.`, source: "cyberware" as const, entry: undefined as CustomHumanityLossEntry | undefined } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null);
+  }, [data?.cyberware]);
+  const customItems = useMemo(() => (data?.customHumanityLoss ?? []), [data?.customHumanityLoss]);
+  const removeCustomLoss = (entry: CustomHumanityLossEntry) => {
+    updateData((d) => {
+      const list = (d.customHumanityLoss ?? []).filter((e) => e.id !== entry.id);
+      const addBackMax = entry.type === "max" ? entry.amount : 0;
+      const addBackCurrent = entry.type === "current" ? entry.amount : 0;
+      return {
+        ...d,
+        customHumanityLoss: list.length ? list : undefined,
+        maxHumanity: addBackMax > 0 ? (d.maxHumanity ?? 0) + addBackMax : d.maxHumanity,
+        currentHumanity: addBackCurrent > 0 ? Math.min(d.maxHumanity ?? 999, (d.currentHumanity ?? 0) + addBackCurrent) : d.currentHumanity,
+      };
+    });
+  };
+  if (cyberwareItems.length === 0 && customItems.length === 0 && !canEdit) return null;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <Typography.Text strong>Reduções de humanidade</Typography.Text>
+      <List
+        size="small"
+        dataSource={[...cyberwareItems, ...customItems.map((e) => ({ key: e.id, label: `${e.description}: -${e.amount} ${e.type === "max" ? "máx." : "atual"}`, source: "custom" as const, entry: e as CustomHumanityLossEntry }))]}
+        renderItem={({ key, label, source, entry }) => (
+          <List.Item
+            key={key}
+            actions={
+              source === "custom" && canEdit && entry
+                ? [
+                    <Button key="del" type="link" danger size="small" onClick={() => removeCustomLoss(entry)}>
+                      Remover
+                    </Button>,
+                  ]
+                : undefined
+            }
+          >
+            {label}
+          </List.Item>
+        )}
+        style={{ marginTop: 4 }}
+      />
+      {canEdit && (
+        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={onAddCustomLoss} style={{ marginTop: 8 }}>
+          Registrar perda de humanidade
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function CyberwareSection({
   cyberware,
   currentHumanity,
@@ -1652,6 +1795,8 @@ function CyberwareSection({
   const [cyberwareCategoryOpen, setCyberwareCategoryOpen] = useState<string[]>([]);
   const [installAllConfirmOpen, setInstallAllConfirmOpen] = useState(false);
   const [installList, setInstallList] = useState<ReferenceCyberware[]>([]);
+  /** Rolled total CH for install-all (when user clicks Rolar); null = use reference sum. */
+  const [installAllRolledHumanityTotal, setInstallAllRolledHumanityTotal] = useState<number | null>(null);
 
   const installedIds = useMemo(() => getInstalledRefIds(cyberware), [cyberware]);
   const refId = Form.useWatch("referenceId", form);
@@ -1666,6 +1811,12 @@ function CyberwareSection({
     () => installList.reduce((s, r) => s + (r.humanityCost ?? 0), 0),
     [installList]
   );
+  const effectiveInstallAllHumanityCost = installAllRolledHumanityTotal ?? installAllTotalHumanityCost;
+
+  /** True if user already pressed "Reduzir humanidade" in the current single-add flow (so we don't apply again on Confirm). */
+  const [singleAddHasReduced, setSingleAddHasReduced] = useState(false);
+  /** True if user already pressed "Reduzir humanidade" on the install-all screen (so we don't apply again on Confirm). */
+  const [installAllHasReduced, setInstallAllHasReduced] = useState(false);
 
   const reduceHumanity = (cost: number) => {
     if (cost <= 0) return;
@@ -1679,8 +1830,8 @@ function CyberwareSection({
   const singleAddWouldReduceBelow20 =
     singleAddHumanityCost > 0 && ((currentHumanity ?? 0) - singleAddHumanityCost < 20);
   const installAllWouldReduceBelow20 =
-    installAllTotalHumanityCost > 0 &&
-    (currentHumanity ?? 0) - installAllTotalHumanityCost < 20;
+    effectiveInstallAllHumanityCost > 0 &&
+    (currentHumanity ?? 0) - effectiveInstallAllHumanityCost < 20;
 
   /** Reference cyberware grouped by category for the add modal. */
   const refByCategory = useMemo(() => {
@@ -1707,11 +1858,24 @@ function CyberwareSection({
   );
 
   const add = (entry: CyberwareEntry) => {
-    updateData((d) => ({ ...d, cyberware: [...d.cyberware, entry] }));
+    const ref = entry.referenceId ? referenceCyberware.find((r) => r.id === entry.referenceId) ?? null : null;
+    const reduction = getMaxHumanityReductionForRef(ref, entry);
+    updateData((d) => ({
+      ...d,
+      cyberware: [...d.cyberware, entry],
+      maxHumanity: Math.max(0, (d.maxHumanity ?? 0) - reduction),
+    }));
   };
 
   const remove = (index: number) => {
-    updateData((d) => ({ ...d, cyberware: d.cyberware.filter((_, i) => i !== index) }));
+    const entry = cyberware[index];
+    const ref = entry?.referenceId ? referenceCyberware.find((r) => r.id === entry.referenceId) ?? null : null;
+    const reduction = getMaxHumanityReductionForRef(ref, entry);
+    updateData((d) => ({
+      ...d,
+      cyberware: d.cyberware.filter((_, i) => i !== index),
+      maxHumanity: (d.maxHumanity ?? 0) + reduction,
+    }));
   };
 
   const toggleWorn = (index: number) => {
@@ -1744,6 +1908,20 @@ function CyberwareSection({
     return map;
   }, [cyberware]);
 
+  /** For each refId, names of installed cyberware that have it in their requires (this ref is prerequisite of those). */
+  const prerequisiteOfNames = useMemo(() => {
+    const result = new Map<string, string[]>();
+    cyberware.forEach((e) => {
+      const ref = e.referenceId ? referenceCyberware.find((r) => r.id === e.referenceId) : null;
+      ref?.requires?.forEach((reqId) => {
+        if (!result.has(reqId)) result.set(reqId, []);
+        const name = ref?.name ?? e.name ?? e.referenceId ?? "";
+        if (name && !result.get(reqId)!.includes(name)) result.get(reqId)!.push(name);
+      });
+    });
+    return result;
+  }, [cyberware, referenceCyberware]);
+
   const handleOk = () => {
     form.validateFields().then((vals) => {
       const ref = vals.referenceId ? referenceCyberware.find((r) => r.id === vals.referenceId) : null;
@@ -1756,6 +1934,14 @@ function CyberwareSection({
           `Pré-requisitos em falta: ${names}. Adicione-os primeiro ou use "Instalar tudo".`,
         );
         return;
+      }
+      const cost = (vals.humanityCost ?? ref?.humanityCost ?? 0) || 0;
+      if (cost > 0 && !singleAddHasReduced) {
+        updateData((d) => ({
+          ...d,
+          currentHumanity: Math.max(0, (d.currentHumanity ?? 0) - cost),
+        }));
+        message.info(`Humanidade reduzida em ${cost} (aplicado ao confirmar).`);
       }
       add({
         name: vals.name ?? ref?.name ?? "Cyberware",
@@ -1773,12 +1959,15 @@ function CyberwareSection({
     if (!selectedRef) return;
     const order = getInstallOrder(referenceCyberware, selectedRef.id, installedIds);
     setInstallList(order);
+    setInstallAllHasReduced(false);
     setInstallAllConfirmOpen(true);
   };
 
   const closeInstallAllConfirm = () => {
     setInstallAllConfirmOpen(false);
     setInstallList([]);
+    setInstallAllRolledHumanityTotal(null);
+    setInstallAllHasReduced(false);
   };
 
   const confirmInstallAll = () => {
@@ -1789,9 +1978,18 @@ function CyberwareSection({
       humanityCost: r.humanityCost,
       worn: true,
     }));
+    const totalMaxReduction = installList.reduce((s, r) => s + getMaxHumanityReductionForRef(r, undefined), 0);
+    if (effectiveInstallAllHumanityCost > 0 && !installAllHasReduced) {
+      message.info(`Humanidade reduzida em ${effectiveInstallAllHumanityCost} (aplicado ao confirmar).`);
+    }
     updateData((d) => ({
       ...d,
       cyberware: [...d.cyberware, ...newEntries],
+      maxHumanity: Math.max(0, (d.maxHumanity ?? 0) - totalMaxReduction),
+      currentHumanity:
+        effectiveInstallAllHumanityCost > 0 && !installAllHasReduced
+          ? Math.max(0, (d.currentHumanity ?? 0) - effectiveInstallAllHumanityCost)
+          : d.currentHumanity,
     }));
     form.resetFields();
     setModalOpen(false);
@@ -1824,14 +2022,34 @@ function CyberwareSection({
                     data-cyberware-slug={slug}
                     actions={
                       canEdit
-                        ? [
-                            <Tooltip key="worn" title={worn ? "Instalado (bônus ativos)" : "Não instalado"}>
-                              <Switch size="small" checked={worn} onChange={() => toggleWorn(index)} />
-                            </Tooltip>,
-                            <Button key="x" type="link" danger size="small" onClick={() => remove(index)}>
-                              Remover
-                            </Button>,
-                          ]
+                        ? (() => {
+                            const dependents = (entry.referenceId && prerequisiteOfNames.get(entry.referenceId)) ?? [];
+                            const canRemove = dependents.length === 0;
+                            const removeBtn = (
+                              <Button
+                                key="x"
+                                type="link"
+                                danger
+                                size="small"
+                                disabled={!canRemove}
+                                onClick={() => remove(index)}
+                              >
+                                Remover
+                              </Button>
+                            );
+                            return [
+                              <Tooltip key="worn" title={worn ? "Instalado (bônus ativos)" : "Não instalado"}>
+                                <Switch size="small" checked={worn} onChange={() => toggleWorn(index)} />
+                              </Tooltip>,
+                              canRemove ? (
+                                removeBtn
+                              ) : (
+                                <Tooltip key="x" title={`Pré-requisito de: ${dependents.join(", ")}`}>
+                                  <span style={{ display: "inline-block" }}>{removeBtn}</span>
+                                </Tooltip>
+                              ),
+                            ];
+                          })()
                         : undefined
                     }
                   >
@@ -1854,22 +2072,41 @@ function CyberwareSection({
         <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>Nenhum cyberware. Adicione para ver por categoria.</Text>
       )}
       {canEdit && (
-        <Button type="dashed" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+        <Button
+          type="dashed"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setModalOpen(true);
+            setSingleAddHasReduced(false);
+            setInstallAllHasReduced(false);
+          }}
+        >
           Adicionar cyberware
         </Button>
       )}
       <Modal
         title={installAllConfirmOpen ? "Instalar tudo — confirmação" : "Adicionar cyberware"}
         open={modalOpen}
-        onCancel={() => (installAllConfirmOpen ? closeInstallAllConfirm() : setModalOpen(false))}
+        onCancel={() => {
+          if (installAllConfirmOpen) closeInstallAllConfirm();
+          else {
+            setSingleAddHasReduced(false);
+            setModalOpen(false);
+          }
+        }}
         width={560}
         footer={
           <Space>
             {installAllConfirmOpen ? (
               <>
                 <Button onClick={closeInstallAllConfirm}>Voltar</Button>
-                {installAllTotalHumanityCost > 0 && (
-                  <Button onClick={() => reduceHumanity(installAllTotalHumanityCost)}>
+                {effectiveInstallAllHumanityCost > 0 && (
+                  <Button
+                    onClick={() => {
+                      setInstallAllHasReduced(true);
+                      reduceHumanity(effectiveInstallAllHumanityCost);
+                    }}
+                  >
                     Reduzir humanidade
                   </Button>
                 )}
@@ -1881,7 +2118,13 @@ function CyberwareSection({
               <>
                 <Button onClick={() => setModalOpen(false)}>Cancelar</Button>
                 {singleAddHumanityCost > 0 && (
-                  <Button onClick={() => reduceHumanity(singleAddHumanityCost)}>
+                  <Button
+                    onClick={() => {
+                      setSingleAddHasReduced(true);
+                      reduceHumanity(singleAddHumanityCost);
+                    }}
+                    disabled={missingPrereqs.length > 0}
+                  >
                     Reduzir humanidade
                   </Button>
                 )}
@@ -1926,10 +2169,34 @@ function CyberwareSection({
             <div style={{ marginTop: 12 }}>
               <strong>Total:</strong>{" "}
               {installList.reduce((s, r) => s + r.price, 0)} eb
-              {(() => {
-                const ch = installList.reduce((s, r) => s + (r.humanityCost ?? 0), 0);
-                return ch > 0 ? `, ${ch} CH` : "";
-              })()}
+              {effectiveInstallAllHumanityCost > 0 ? `, ${effectiveInstallAllHumanityCost} CH` : ""}
+              {installList.some((r) => r.humanityCostDice) && (
+                <Button
+                  type="default"
+                  size="small"
+                  style={{ marginLeft: 8 }}
+                  onClick={() => {
+                    let total = 0;
+                    installList.forEach((r) => {
+                      if (r.humanityCostDice) {
+                        const parsed = parseDamageDice(r.humanityCostDice);
+                        if (parsed) {
+                          const { sum } = rollDice(parsed.count, parsed.size);
+                          total += sum;
+                        } else {
+                          total += r.humanityCost ?? 0;
+                        }
+                      } else {
+                        total += r.humanityCost ?? 0;
+                      }
+                    });
+                    setInstallAllRolledHumanityTotal(total);
+                    message.success(`${total} CH total — use "Reduzir humanidade" para descontar.`);
+                  }}
+                >
+                  Rolar
+                </Button>
+              )}
             </div>
             {installAllWouldReduceBelow20 && (
               <Text type="danger" style={{ display: "block", marginTop: 8, fontSize: 12 }}>
