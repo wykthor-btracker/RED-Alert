@@ -179,13 +179,15 @@ export function ActivityLog (props: any) {
         <Col span={24} style={{ flexShrink: 0 }}>
           <Row align="middle" justify="space-between" wrap style={{ marginBottom: 4 }}>
             <Col>
-              <Divider style={{ margin: "12px 0", cursor: "pointer" }} onClick={handleToggleChat}>
-                <Badge count={unreadCount} size="small" overflowCount={99} offset={[4, 0]}>
-                  <span style={{ userSelect: "none" }}>
-                    Chat {chatCollapsed ? <DownOutlined /> : <UpOutlined />}
-                  </span>
-                </Badge>
-              </Divider>
+              <div role="button" tabIndex={0} style={{ margin: "12px 0", cursor: "pointer" }} onClick={handleToggleChat} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleToggleChat(); } }}>
+                <Divider style={{ margin: 0 }}>
+                  <Badge count={unreadCount} size="small" overflowCount={99} offset={[4, 0]}>
+                    <span style={{ userSelect: "none" }}>
+                      Chat {chatCollapsed ? <DownOutlined /> : <UpOutlined />}
+                    </span>
+                  </Badge>
+                </Divider>
+              </div>
             </Col>
             {!chatCollapsed && (
               <Col>

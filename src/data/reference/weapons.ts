@@ -10,7 +10,18 @@ export interface ReferenceWeapon extends ReferenceItem {
   skill?: string;
   /** Has autofire (uses AUTOFIRE_DV table). */
   autofire?: boolean;
+  /** Melee category key for label lookup. */
+  meleeCategory?: string;
+  hands?: string;
+  rof?: string;
+  concealable?: boolean;
+  costTier?: string;
+  magazineSize?: string;
+  special?: string;
 }
+
+/** Labels for melee category keys (e.g. used in character sheet weapon details). */
+export const MELEE_CATEGORY_LABELS: Record<string, string> = {};
 
 export const referenceWeapons: ReferenceWeapon[] = [
   { id: "vhp", name: "Pistola Muito Pesada", category: "Pistol", price: 100, weaponType: "pistola", damageDice: "4d6", skill: "Armas de uma Mão" },

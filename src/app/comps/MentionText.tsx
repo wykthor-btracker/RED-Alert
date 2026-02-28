@@ -71,7 +71,10 @@ export function MentionText({ text, entities, onMentionClick, className }: Menti
           <span key={part.key}>
             <Typography.Link
               type="secondary"
-              onClick={() => entity && onMentionClick?.(slug, entity.type)}
+              onClick={() => {
+                if (!entity || !onMentionClick) return;
+                onMentionClick(slug ?? "", (entity.type ?? "note") as "contact" | "note" | "group");
+              }}
               style={{ cursor: entity ? "pointer" : "default" }}
             >
               @{slug}

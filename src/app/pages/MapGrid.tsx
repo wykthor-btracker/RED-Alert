@@ -842,7 +842,7 @@ export default function MapGrid() {
       if (id) combatantIds.add(id);
     }
     const amount = granadaDamageAmount;
-    for (const id of combatantIds) {
+    for (const id of Array.from(combatantIds)) {
       applyDamage(id, amount);
     }
     if (granadaDamageCover) {
@@ -882,7 +882,7 @@ export default function MapGrid() {
       if (id) combatantIds.add(id);
     }
     const amount = shotgunDamageAmount;
-    for (const id of combatantIds) {
+    for (const id of Array.from(combatantIds)) {
       applyDamage(id, amount);
     }
     if (shotgunDamageCover) {
@@ -1614,7 +1614,7 @@ export default function MapGrid() {
               const id = cells[r]?.[c] ?? null;
               if (id) ids.add(id);
             }
-            const names = [...ids].map((id) => initiativeCombatants.find((c) => c.id === id)?.name ?? id.slice(-6));
+            const names = Array.from(ids).map((id) => initiativeCombatants.find((c) => c.id === id)?.name ?? id.slice(-6));
             return (
               <>
                 <div style={{ marginBottom: 8, fontSize: 12, color: "#666" }}>
@@ -1657,7 +1657,7 @@ export default function MapGrid() {
                 const id = cells[r]?.[c] ?? null;
                 if (id) ids.add(id);
               }
-              const names = [...ids].map((id) => initiativeCombatants.find((c) => c.id === id)?.name ?? id.slice(-6));
+              const names = Array.from(ids).map((id) => initiativeCombatants.find((c) => c.id === id)?.name ?? id.slice(-6));
               return (
                 <>
                   <div style={{ marginBottom: 8, fontSize: 12, color: "#666" }}>

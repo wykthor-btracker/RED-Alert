@@ -78,7 +78,7 @@ function nextId() {
 }
 
 /** Short stats line for list summary (e.g. "BODY 6, REF 5, INT 4"). */
-function statsBreakdown(stats: Record<string, number>, keys: string[] = DEFAULT_STAT_KEYS): string {
+function statsBreakdown(stats: Record<string, number>, keys: readonly string[] = DEFAULT_STAT_KEYS): string {
   const parts = keys.filter((k) => stats[k] != null).map((k) => `${k} ${stats[k] ?? 0}`);
   return parts.length ? parts.join(", ") : "—";
 }
@@ -278,7 +278,7 @@ export default function CharacterData() {
   // Always run same hooks (guard for null data so early returns don't change hook count)
   const allStatKeys = useMemo(() => {
     if (!data?.stats) return [...DEFAULT_STAT_KEYS];
-    const set = new Set(DEFAULT_STAT_KEYS);
+    const set = new Set<string>(DEFAULT_STAT_KEYS);
     Object.keys(data.stats).forEach((k) => set.add(k));
     return Array.from(set);
   }, [data?.stats]);
@@ -498,7 +498,7 @@ export default function CharacterData() {
           <Space.Compact style={{ width: "100%", maxWidth: 400 }}>
             <Input
               placeholder="Ex.: Nome do personagem ou apelido"
-              value={data.sheetName ?? ""}
+              value={data?.sheetName ?? ""}
               onChange={(e) => setSheetName(e.target.value)}
               disabled={!canEdit}
               allowClear
@@ -534,14 +534,14 @@ export default function CharacterData() {
         )}
         <Form.Item label="Ícone do personagem">
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 12 }}>
-            {data.characterIcon && (
+            {data?.characterIcon && (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                 <div
                   style={{
                     width: 48,
                     height: 48,
                     borderRadius: "50%",
-                    backgroundImage: `url(${resolveCharacterIcon(data.characterIcon)})`,
+                    backgroundImage: `url(${resolveCharacterIcon(data?.characterIcon)})`,
                     backgroundSize: "cover",
                     backgroundPosition: "center",
                     border: "2px solid #d9d9d9",
@@ -570,7 +570,7 @@ export default function CharacterData() {
                 <Button size="small" icon={<UploadOutlined />} onClick={() => iconFileInputRef.current?.click()}>
                   Carregar imagem
                 </Button>
-                <Button size="small" onClick={() => setCharacterIcon(undefined)} disabled={!data.characterIcon}>
+                <Button size="small" onClick={() => setCharacterIcon(undefined)} disabled={!data?.characterIcon}>
                   Remover ícone
                 </Button>
               </>
@@ -582,7 +582,7 @@ export default function CharacterData() {
               <Row gutter={[8, 8]}>
                 {PRESETS.map((preset) => {
                   const resolved = resolveCharacterIcon(preset.id);
-                  const isSelected = data.characterIcon === preset.id;
+                  const isSelected = data?.characterIcon === preset.id;
                   return (
                     <Col key={preset.id}>
                       <div
@@ -643,7 +643,7 @@ export default function CharacterData() {
                 <Space align="center" wrap style={{ marginBottom: 16 }}>
                   <Form.Item label="Nível de Reputação" style={{ marginBottom: 0 }}>
                     <InputNumber
-                      value={data.reputation ?? 0}
+                      value={data?.reputation ?? 0}
                       onChange={(v) => setReputation(v ?? 0)}
                       disabled={!canEdit}
                       style={{ width: 72 }}
@@ -656,7 +656,7 @@ export default function CharacterData() {
                         if (!data || !senderData) return;
                         const { sum: d10 } = rollDice(1, 10);
                         const cool = getEffectiveStat(data, "COOL");
-                        const rep = data.reputation ?? 0;
+                        const rep = data?.reputation ?? 0;
                         const total = d10 + cool + rep;
                         const msg = `Carão (+): 1d10 (${d10}) + COOL (${cool}) + Reputação (${rep}) = ${total}`;
                         send({
@@ -675,7 +675,7 @@ export default function CharacterData() {
                         if (!data || !senderData) return;
                         const { sum: d10 } = rollDice(1, 10);
                         const cool = getEffectiveStat(data, "COOL");
-                        const rep = data.reputation ?? 0;
+                        const rep = data?.reputation ?? 0;
                         const total = d10 + cool - rep;
                         const msg = `Carão (−): 1d10 (${d10}) + COOL (${cool}) − Reputação (${rep}) = ${total}`;
                         send({
@@ -820,8 +820,8 @@ export default function CharacterData() {
                     <InputNumber
                       min={0}
                       max={getDerivedMaxHealth(getEffectiveStat(data, "BODY"), getEffectiveStat(data, "WILL"))}
-                      value={data.currentHealth}
-                      onChange={(v) => setHealth(v ?? undefined, data.maxHealth)}
+                      value={data?.currentHealth}
+                      onChange={(v) => setHealth(v ?? undefined, data?.maxHealth)}
                       disabled={!canEdit}
                       style={{ width: 72 }}
                     />
@@ -837,8 +837,8 @@ export default function CharacterData() {
                   <Form.Item label="Humanidade atual">
                     <InputNumber
                       min={0}
-                      value={data.currentHumanity}
-                      onChange={(v) => setHumanity(v ?? undefined, data.maxHumanity)}
+                      value={data?.currentHumanity}
+                      onChange={(v) => setHumanity(v ?? undefined, data?.maxHumanity)}
                       disabled={!canEdit}
                       style={{ width: 72 }}
                     />
@@ -846,8 +846,8 @@ export default function CharacterData() {
                   <Form.Item label="Humanidade máx.">
                     <InputNumber
                       min={0}
-                      value={data.maxHumanity}
-                      onChange={(v) => setHumanity(data.currentHumanity, v ?? undefined)}
+                      value={data?.maxHumanity}
+                      onChange={(v) => setHumanity(data?.currentHumanity, v ?? undefined)}
                       disabled={!canEdit}
                       style={{ width: 72 }}
                     />
@@ -943,7 +943,7 @@ export default function CharacterData() {
               <Form.Item label="Pixéis">
                 <InputNumber
                   min={0}
-                  value={data.credits}
+                  value={data?.credits}
                   onChange={(v) => setCredits(v ?? 0)}
                   disabled={!canEdit}
                   style={{ width: 120 }}
@@ -954,7 +954,7 @@ export default function CharacterData() {
           {
             key: "inventory",
             label: "Inventário",
-            children: (
+            children: data ? (
               <InventorySection
                 data={data}
                 weapons={data.weapons}
@@ -963,15 +963,15 @@ export default function CharacterData() {
                 canEdit={canEdit}
                 updateData={updateData}
               />
-            ),
+            ) : null,
           },
           {
             key: "cyberware",
             label: "Cyberware",
             children: (
               <CyberwareSection
-                cyberware={data.cyberware}
-                currentHumanity={data.currentHumanity}
+                cyberware={data?.cyberware ?? []}
+                currentHumanity={data?.currentHumanity}
                 canEdit={canEdit}
                 updateData={updateData}
                 scrollToCyberwareRef={scrollToCyberwareRef}
@@ -983,9 +983,9 @@ export default function CharacterData() {
             label: "Informação (Contatos, Notas e Grupos)",
             children: (
               <InfoSection
-                contacts={data.contacts}
-                notes={data.notes}
-                groups={data.groups ?? []}
+                contacts={data?.contacts ?? []}
+                notes={data?.notes ?? []}
+                groups={data?.groups ?? []}
                 canEdit={canEdit}
                 updateData={updateData}
                 mentionEntities={mentionEntities}
@@ -1914,14 +1914,14 @@ function getInstallOrder(
   collect(targetId);
 
   // Keep only those not already installed
-  const missing = [...toAddIds].filter((id) => !installedIds.has(id));
+  const missing = Array.from(toAddIds).filter((id) => !installedIds.has(id));
   if (missing.length === 0) return [];
 
   const remaining = new Set(missing);
   const ordered: string[] = [];
   while (remaining.size > 0) {
     let found = false;
-    for (const id of remaining) {
+    for (const id of Array.from(remaining)) {
       const ref = refMap.get(id);
       const reqs = ref?.requires ?? [];
       const allSatisfied = reqs.every(
@@ -2298,7 +2298,7 @@ function CyberwareSection({
                               canRemove ? (
                                 removeBtn
                               ) : (
-                                <Tooltip key="x" title={`Pré-requisito de: ${dependents.join(", ")}`}>
+                                <Tooltip key="x" title={`Pré-requisito de: ${Array.isArray(dependents) ? dependents.join(", ") : dependents}`}>
                                   <span style={{ display: "inline-block" }}>{removeBtn}</span>
                                 </Tooltip>
                               ),
