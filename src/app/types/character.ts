@@ -55,6 +55,14 @@ export interface CustomHumanityLossEntry {
   type: "max" | "current";
 }
 
+/** Recorded humanity recovery (therapy). */
+export interface HumanityRecoveryEntry {
+  id: string;
+  /** "recuperacao-padrao" = 2d6, "recuperacao-extrema" = 4d6, "terapia-dependencia" = addiction only. */
+  type: "recuperacao-padrao" | "recuperacao-extrema" | "terapia-dependencia";
+  amountRecovered: number;
+}
+
 /** Contact: linkable via slug (from name). */
 export interface Contact {
   id: string;
@@ -94,6 +102,8 @@ export interface CharacterData {
   cyberware: CyberwareEntry[];
   /** Custom humanity reductions for rundown (and applied to max/current when added). */
   customHumanityLoss?: CustomHumanityLossEntry[];
+  /** Recorded humanity recoveries (therapy). */
+  humanityRecoveries?: HumanityRecoveryEntry[];
   contacts: Contact[];
   notes: Note[];
 }

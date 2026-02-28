@@ -11,6 +11,8 @@ import {
   List,
   message,
   Modal,
+  Popover,
+  Radio,
   Row,
   Col,
   Select,
@@ -19,7 +21,6 @@ import {
   Table,
   Tooltip,
   Typography,
-  Popover,
 } from "antd";
 import {
   DeleteOutlined,
@@ -39,6 +40,7 @@ import type {
   Contact,
   CustomHumanityLossEntry,
   CyberwareEntry,
+  HumanityRecoveryEntry,
   InventoryEntry,
   Note,
   SkillEntry,
@@ -113,6 +115,9 @@ export default function CharacterData() {
   const [importText, setImportText] = useState("");
   const [deleteSheetConfirmOpen, setDeleteSheetConfirmOpen] = useState(false);
   const [customHumanityLossModalOpen, setCustomHumanityLossModalOpen] = useState(false);
+  const [humanidadeRecoveryModalOpen, setHumanidadeRecoveryModalOpen] = useState(false);
+  const [recoveryType, setRecoveryType] = useState<"recuperacao-padrao" | "recuperacao-extrema" | "terapia-dependencia">("recuperacao-padrao");
+  const [recoveryRolled, setRecoveryRolled] = useState<number | null>(null);
   const [mainCollapseOpen, setMainCollapseOpen] = useState<string[]>([]);
   const contactRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
   const noteRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
@@ -792,6 +797,80 @@ export default function CharacterData() {
                   updateData={updateData}
                   onAddCustomLoss={() => setCustomHumanityLossModalOpen(true)}
                 />
+                <div style={{ marginTop: 24 }}>
+                  <Typography.Text strong>Recuperações de humanidade</Typography.Text>
+                  <List
+                    size="small"
+                    dataSource={data?.humanityRecoveries ?? []}
+                    locale={{
+                      emptyText: (
+                        <div style={{ textAlign: "center", padding: 12, color: "#999" }}>
+                          Nenhuma recuperação registrada.
+                        </div>
+                      ),
+                    }}
+                    renderItem={(entry: HumanityRecoveryEntry) => {
+                      const isExtrema = entry.type === "recuperacao-extrema";
+                      const isTerapia = entry.type === "terapia-dependencia";
+                      const label = isTerapia
+                        ? "Terapia Dependência (libertação de vício)"
+                        : isExtrema
+                          ? `Recuperação Extrema: +${entry.amountRecovered} humanidade`
+                          : `Recuperação Padrão: +${entry.amountRecovered} humanidade`;
+                      const removeRecovery = () => {
+                        updateData((d) => {
+                          const list = (d.humanityRecoveries ?? []).filter((e) => e.id !== entry.id);
+                          const subtract = entry.amountRecovered;
+                          const newCurrent =
+                            subtract > 0
+                              ? Math.max(0, (d.currentHumanity ?? 0) - subtract)
+                              : d.currentHumanity;
+                          return {
+                            ...d,
+                            humanityRecoveries: list.length ? list : undefined,
+                            currentHumanity: newCurrent,
+                          };
+                        });
+                      };
+                      return (
+                        <List.Item
+                          actions={
+                            canEdit
+                              ? [
+                                  <Button
+                                    key="remove"
+                                    type="link"
+                                    danger
+                                    size="small"
+                                    onClick={removeRecovery}
+                                  >
+                                    Remover
+                                  </Button>,
+                                ]
+                              : undefined
+                          }
+                        >
+                          {label}
+                        </List.Item>
+                      );
+                    }}
+                    style={{ marginTop: 4 }}
+                  />
+                  {canEdit && (
+                    <Button
+                      type="dashed"
+                      size="small"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        setRecoveryRolled(null);
+                        setHumanidadeRecoveryModalOpen(true);
+                      }}
+                      style={{ marginTop: 8 }}
+                    >
+                      Registrar recuperação de humanidade
+                    </Button>
+                  )}
+                </div>
               </>
             ),
           },
@@ -907,6 +986,93 @@ export default function CharacterData() {
             <Select options={[{ value: "max", label: "Reduz humanidade máx." }, { value: "current", label: "Reduz humanidade atual" }]} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="Registrar recuperação de humanidade"
+        open={humanidadeRecoveryModalOpen}
+        onOk={() => {
+          const isTerapia = recoveryType === "terapia-dependencia";
+          const rolled = recoveryRolled ?? 0;
+          if (!isTerapia && rolled <= 0) {
+            message.warning("Rola os dados antes de registrar.");
+            return;
+          }
+          const maxH = data?.maxHumanity ?? 0;
+          const curH = data?.currentHumanity ?? 0;
+          const actualRecovered = isTerapia ? 0 : Math.min(rolled, Math.max(0, maxH - curH));
+          const id = `recovery-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const entry: HumanityRecoveryEntry = { id, type: recoveryType, amountRecovered: actualRecovered };
+          updateData((d) => {
+            const list = [...(d.humanityRecoveries ?? []), entry];
+            const newCurrent = isTerapia ? d.currentHumanity : Math.min(d.maxHumanity ?? 999, (d.currentHumanity ?? 0) + actualRecovered);
+            return { ...d, humanityRecoveries: list, currentHumanity: newCurrent };
+          });
+          setHumanidadeRecoveryModalOpen(false);
+          setRecoveryRolled(null);
+        }}
+        onCancel={() => { setHumanidadeRecoveryModalOpen(false); setRecoveryRolled(null); }}
+        okText="Registrar"
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Typography.Text type="secondary">Método</Typography.Text>
+          <Radio.Group
+            value={recoveryType}
+            onChange={(e) => {
+                const v = e.target.value as typeof recoveryType;
+                if (v) { setRecoveryType(v); setRecoveryRolled(null); }
+              }}
+            style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}
+          >
+            <Radio value="terapia-dependencia" style={{ marginLeft: 0, alignItems: "flex-start" }}>
+              <div>
+                <strong>Terapia Dependência</strong>
+                <div style={{ color: "#666", fontSize: 12, marginTop: 2 }}>
+                  1 semana de psicoterapia intensiva + fármacos anti‑adicção. 1.000eb (Muito Caro). Liberta um vício (DV15, materiais 500eb).
+                </div>
+              </div>
+            </Radio>
+            <Radio value="recuperacao-padrao" style={{ marginLeft: 0, alignItems: "flex-start" }}>
+              <div>
+                <strong>Recuperação Padrão</strong>
+                <div style={{ color: "#666", fontSize: 12, marginTop: 2 }}>
+                  2d6 humanidade. Psicoterapia intensiva (stresse/raiva, hipnose, reprogramação menor, dança terapêutica). 500eb (Caro), DV15.
+                </div>
+              </div>
+            </Radio>
+            <Radio value="recuperacao-extrema" style={{ marginLeft: 0, alignItems: "flex-start" }}>
+              <div>
+                <strong>Recuperação Extrema</strong>
+                <div style={{ color: "#666", fontSize: 12, marginTop: 2 }}>
+                  4d6 humanidade. Reprogramação cerebral extrema, fármacos de última geração. 1.000eb + 500eb materiais (Muito Caro), DV17.
+                </div>
+              </div>
+            </Radio>
+          </Radio.Group>
+          {recoveryType !== "terapia-dependencia" && (
+            <div>
+              <Button
+                type="primary"
+                onClick={() => {
+                  const { sum } = rollDice(recoveryType === "recuperacao-padrao" ? 2 : 4, 6);
+                  setRecoveryRolled(sum);
+                }}
+              >
+                Rolar {recoveryType === "recuperacao-padrao" ? "2d6" : "4d6"}
+              </Button>
+              {recoveryRolled != null && (
+                <span style={{ marginLeft: 12 }}>
+                  Resultado: <strong>{recoveryRolled}</strong>
+                  {data && (data.maxHumanity ?? 0) - (data.currentHumanity ?? 0) < recoveryRolled && (
+                    <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+                      (máx. recuperável: {(data.maxHumanity ?? 0) - (data.currentHumanity ?? 0)})
+                    </Typography.Text>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+        </Space>
       </Modal>
     </div>
   );
