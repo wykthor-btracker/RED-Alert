@@ -646,45 +646,51 @@ export default function CharacterData() {
                           }
                         : undefined;
                       const metaStyle = isTechnical ? { fontSize: 11 } : undefined;
-                      const bonusPopover =
-                        bonus > 0 && bonusData?.sources?.length ? (
-                          <Popover
-                            trigger="click"
-                            content={
-                              <div style={{ maxWidth: 280 }}>
-                                <div style={{ marginBottom: 6, fontWeight: 600 }}>Bônus de cyberware</div>
-                                {bonusData.sources.map(({ slug, bonus: b }) => (
-                                  <div key={slug}>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCyberwareSlugClick(slug)}
-                                      style={{
-                                        background: "none",
-                                        border: "none",
-                                        padding: 0,
-                                        cursor: "pointer",
-                                        color: "#1677ff",
-                                        textDecoration: "underline",
-                                        font: "inherit",
-                                      }}
-                                    >
-                                      @{slug}
-                                    </button>
-                                    {" "}
-                                    (+{b})
-                                  </div>
-                                ))}
-                              </div>
-                            }
-                          >
-                            <span style={{ cursor: "pointer", textDecoration: "underline", color: "#1677ff" }}>
-                              = {statVal + item.value}
-                              {bonus > 0 ? ` + ${bonus}(cyber) = ${total}` : ` = ${total}`}
-                            </span>
-                          </Popover>
-                        ) : (
-                          <Text style={metaStyle}>= {total}</Text>
-                        );
+                      const breakdownText =
+                        bonus > 0
+                          ? `${item.baseStat} ${statVal} + ${item.name} ${item.value} + ${bonus}(cyber) = ${total}`
+                          : `${item.baseStat} ${statVal} + ${item.name} ${item.value} = ${total}`;
+                      const totalWithHover = (
+                        <Popover
+                          trigger="hover"
+                          mouseEnterDelay={0.2}
+                          content={
+                            <div style={{ maxWidth: 320 }}>
+                              <div style={{ marginBottom: 6 }}>{breakdownText}</div>
+                              {bonus > 0 && bonusData?.sources?.length ? (
+                                <>
+                                  <div style={{ marginBottom: 4, fontWeight: 600, fontSize: 12 }}>Bônus de cyberware (clique para ir)</div>
+                                  {bonusData.sources.map(({ slug, bonus: b }) => (
+                                    <div key={slug}>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCyberwareSlugClick(slug)}
+                                        style={{
+                                          background: "none",
+                                          border: "none",
+                                          padding: 0,
+                                          cursor: "pointer",
+                                          color: "#1677ff",
+                                          textDecoration: "underline",
+                                          font: "inherit",
+                                        }}
+                                      >
+                                        @{slug}
+                                      </button>
+                                      {" "}
+                                      (+{b})
+                                    </div>
+                                  ))}
+                                </>
+                              ) : null}
+                            </div>
+                          }
+                        >
+                          <span style={{ cursor: "help", textDecoration: "underline", textDecorationStyle: "dotted" }}>
+                            <Text style={metaStyle}> = {total}</Text>
+                          </span>
+                        </Popover>
+                      );
                       return (
                         <List.Item
                           key={item.key}
@@ -713,7 +719,7 @@ export default function CharacterData() {
                             <Text type="secondary" style={metaStyle}>
                               ({item.baseStat})
                             </Text>
-                            {bonusPopover}
+                            {totalWithHover}
                           </Space>
                         </List.Item>
                       );
