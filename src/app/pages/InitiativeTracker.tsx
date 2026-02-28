@@ -1,10 +1,11 @@
 import { Button, Col, FloatButton, Form, FormProps, Input, List, Row, Switch, Typography } from "antd";
-import { LeftOutlined, RightOutlined, UserOutlined } from "@ant-design/icons";
+import { LeftOutlined, RightOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
 import QueueAnim from "rc-queue-anim";
 import { useContext, useEffect, useMemo, useState } from "react";
 import Fighter from "../comps/Fighter";
 import { InitiativeCombatant, LogData, MessageBusContext } from "../contexts/MessageBusContext";
-import { getSheetStoppingPower } from "../types/character";
+import { getDerivedMaxHealth, getSheetStoppingPower } from "../types/character";
+import type { CharacterData } from "../types/character";
 import { referenceWearables } from "@/data/reference/wearables";
 const { Title } = Typography;
 
@@ -261,8 +262,8 @@ export default function InitiativeTracker(props: any) {
           const bodyMax = Math.max(Number(sp.bodyMax), 1);
           const head = Number(sp.head);
           const headMax = Math.max(Number(sp.headMax), 1);
-          const sheetHp = Number(sheetData.currentHealth ?? sheetData.maxHealth ?? 0);
-          const sheetHpMax = Math.max(Number(sheetData.maxHealth ?? 0), 1);
+          const sheetHpMax = Math.max(getDerivedMaxHealth(sheetData.stats?.BODY ?? 0, sheetData.stats?.WILL ?? 0), 1);
+          const sheetHp = Number(sheetData.currentHealth ?? sheetHpMax ?? 0);
           const curBody = c.stoppingPower ?? 0;
           const curBodyMax = c.stoppingPowerMax ?? 0;
           const curHead = c.stoppingPowerHead ?? c.stoppingPower ?? 0;
@@ -377,16 +378,17 @@ export default function InitiativeTracker(props: any) {
         broadcastUpdate(`Iniciativa: combatente adicionado — ${displayName}`)
     }
 
-    function addSheetToBattle(entry: { ownerName: string; data: { sheetName?: string; currentHealth?: number; maxHealth?: number; wearables?: unknown[]; characterIcon?: string } }) {
-      const sheet = entry.data;
+    function addSheetToBattle(entry: { ownerName: string; data: { sheetName?: string; currentHealth?: number; maxHealth?: number; stats?: Record<string, number>; wearables?: unknown[]; characterIcon?: string } }) {
+      const sheet = entry.data as CharacterData;
       const displayName = nameForNewCombatant(initiativeCombatants, sheet.sheetName?.trim() || entry.ownerName);
-      const sp = getSheetStoppingPower(sheet as import("../types/character").CharacterData, referenceWearables);
-      const hp = Math.max(0, Number(sheet.currentHealth ?? sheet.maxHealth ?? 0)) || 1;
+      const sp = getSheetStoppingPower(sheet, referenceWearables);
+      const derivedMax = getDerivedMaxHealth(sheet.stats?.BODY ?? 0, sheet.stats?.WILL ?? 0);
+      const hp = Math.max(0, Number(sheet.currentHealth ?? derivedMax ?? 0)) || Math.max(1, derivedMax);
       const next: InitiativeCombatant[] = [...initiativeCombatants, {
         id: nextId(),
         name: displayName,
         currentHealth: hp,
-        maxHealth: Math.max(hp, Math.max(0, Number((sheet as { maxHealth?: number }).maxHealth ?? 0)) || hp),
+        maxHealth: Math.max(hp, Math.max(1, derivedMax)),
         stoppingPower: sp.body,
         stoppingPowerMax: Math.max(sp.bodyMax, 1),
         stoppingPowerHead: sp.head,
@@ -591,8 +593,15 @@ export default function InitiativeTracker(props: any) {
           </Col>
         )}
         <Col span={24} style={{overflowY: "scroll", height: "60vh"}}>
-            <List 
-              locale={{emptyText: "."}}
+            <List
+              locale={{
+                emptyText: (
+                  <div style={{ textAlign: "center", padding: 24, color: "#999" }}>
+                    <TeamOutlined style={{ fontSize: 48, display: "block", marginBottom: 8 }} />
+                    Nenhum combatente na iniciativa.
+                  </div>
+                ),
+              }}
               dataSource={data} 
               renderItem={(item, index)=>(
                 <QueueAnim delay={150} key={item.id}>

@@ -3,7 +3,7 @@ import { InitiativeCombatant, LogData, LogDataMetadataSenderData, MapGridState, 
 import { message } from "antd";
 import Peer, { DataConnection } from "peerjs";
 import type { CharacterData, InventoryEntry } from "../types/character";
-import { createDefaultCharacterData } from "../types/character";
+import { createDefaultCharacterData, getDerivedMaxHealth } from "../types/character";
 
 const CONNECTION_TIMEOUT_MS = 15000;
 const KEEPALIVE_INTERVAL_MS = 25_000;
@@ -23,7 +23,7 @@ const HOST_PERSIST_STORAGE_KEY = "soundboard:hostPersist";
 /** Build updated sheet data by applying combatant HP/SP to the sheet (so Personagem tab stays in sync with Iniciativa/Mapa). */
 function applyCombatantToSheet(sheet: CharacterData, combatant: InitiativeCombatant): CharacterData {
   const currentHealth = combatant.currentHealth ?? sheet.currentHealth;
-  const maxHealth = combatant.maxHealth ?? sheet.maxHealth;
+  const maxHealth = combatant.maxHealth ?? getDerivedMaxHealth(sheet.stats?.BODY ?? 0, sheet.stats?.WILL ?? 0);
   let bodyUpdated = false;
   let headUpdated = false;
   const wearables = (sheet.wearables ?? []).map((w: InventoryEntry) => {
@@ -46,8 +46,9 @@ function applyCombatantToSheet(sheet: CharacterData, combatant: InitiativeCombat
 
 /** Return true if sheet and combatant already match (no need to write back). */
 function sheetMatchesCombatant(sheet: CharacterData, combatant: InitiativeCombatant): boolean {
-  const shp = Number(sheet.currentHealth ?? sheet.maxHealth ?? 0);
-  const shpMax = Number(sheet.maxHealth ?? 0);
+  const sheetMax = getDerivedMaxHealth(sheet.stats?.BODY ?? 0, sheet.stats?.WILL ?? 0);
+  const shp = Number(sheet.currentHealth ?? sheetMax ?? 0);
+  const shpMax = sheetMax;
   const chp = combatant.currentHealth ?? 0;
   const chpMax = combatant.maxHealth ?? 0;
   if (chp !== shp || chpMax !== shpMax) return false;

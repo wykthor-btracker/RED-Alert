@@ -24,8 +24,10 @@ import {
 import {
   DeleteOutlined,
   DownloadOutlined,
+  HeartOutlined,
   InfoCircleOutlined,
   PlusOutlined,
+  ThunderboltOutlined,
   UploadOutlined,
   UserOutlined,
 } from "@ant-design/icons";
@@ -45,6 +47,7 @@ import type {
 import {
   createDefaultCharacterData,
   DEFAULT_STAT_KEYS,
+  getDerivedMaxHealth,
   slugify,
 } from "../types/character";
 import { referenceSkills, SKILL_CATEGORY_LABELS } from "@/data/reference/skills";
@@ -363,7 +366,7 @@ export default function CharacterData() {
                 </div>
                 <div style={{ marginTop: 2, fontSize: 12 }}>
                   <Text type="secondary">
-                    Vida: {entry.data.currentHealth ?? "—"} / {entry.data.maxHealth ?? "—"}
+                    Vida: {entry.data.currentHealth ?? "—"} / {getDerivedMaxHealth(getEffectiveStat(entry.data, "BODY"), getEffectiveStat(entry.data, "WILL"))}
                     {" · "}
                     Humanidade: {entry.data.currentHumanity ?? "—"} / {entry.data.maxHumanity ?? "—"}
                   </Text>
@@ -410,7 +413,10 @@ export default function CharacterData() {
     }
     return (
       <div style={{ padding: 24, textAlign: "center" }}>
-        <Empty description="Nenhum dado de personagem carregado.">
+        <Empty
+          image={<UserOutlined style={{ fontSize: 64, color: "#bfbfbf" }} />}
+          description="Nenhum dado de personagem carregado."
+        >
           <Button type="primary" icon={<PlusOutlined />} onClick={initializeData}>
             Inicializar ficha
           </Button>
@@ -429,7 +435,10 @@ export default function CharacterData() {
           </Title>
         </div>
         {hostListBlock}
-        <Empty description="Selecione um personagem para editar ou crie um novo." />
+        <Empty
+          image={<UserOutlined style={{ fontSize: 64, color: "#bfbfbf" }} />}
+          description="Selecione um personagem para editar ou crie um novo."
+        />
       </div>
     );
   }
@@ -737,18 +746,18 @@ export default function CharacterData() {
                   <Form.Item label="Vida atual">
                     <InputNumber
                       min={0}
+                      max={getDerivedMaxHealth(getEffectiveStat(data, "BODY"), getEffectiveStat(data, "WILL"))}
                       value={data.currentHealth}
                       onChange={(v) => setHealth(v ?? undefined, data.maxHealth)}
                       disabled={!canEdit}
                       style={{ width: 72 }}
                     />
                   </Form.Item>
-                  <Form.Item label="Vida máx.">
+                  <Form.Item label="Vida máx." tooltip="10 + (5 × média de BODY e WILL, arredondada para cima).">
                     <InputNumber
                       min={0}
-                      value={data.maxHealth}
-                      onChange={(v) => setHealth(data.currentHealth, v ?? undefined)}
-                      disabled={!canEdit}
+                      value={getDerivedMaxHealth(getEffectiveStat(data, "BODY"), getEffectiveStat(data, "WILL"))}
+                      disabled
                       style={{ width: 72 }}
                     />
                   </Form.Item>
@@ -1744,12 +1753,21 @@ function HumanityRundown({
     });
   };
   if (cyberwareItems.length === 0 && customItems.length === 0 && !canEdit) return null;
+  const rundownDataSource = [...cyberwareItems, ...customItems.map((e) => ({ key: e.id, label: `${e.description}: -${e.amount} ${e.type === "max" ? "máx." : "atual"}`, source: "custom" as const, entry: e as CustomHumanityLossEntry }))];
   return (
     <div style={{ marginTop: 16 }}>
       <Typography.Text strong>Reduções de humanidade</Typography.Text>
       <List
         size="small"
-        dataSource={[...cyberwareItems, ...customItems.map((e) => ({ key: e.id, label: `${e.description}: -${e.amount} ${e.type === "max" ? "máx." : "atual"}`, source: "custom" as const, entry: e as CustomHumanityLossEntry }))]}
+        dataSource={rundownDataSource}
+        locale={{
+          emptyText: (
+            <div style={{ textAlign: "center", padding: 16, color: "#999" }}>
+              <HeartOutlined style={{ fontSize: 40, display: "block", marginBottom: 8 }} />
+              Nenhuma redução registada (cyberware com custo ou perdas customizadas).
+            </div>
+          ),
+        }}
         renderItem={({ key, label, source, entry }) => (
           <List.Item
             key={key}
@@ -2069,7 +2087,11 @@ function CyberwareSection({
         }))}
       />
       {byCategory.size === 0 && (
-        <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>Nenhum cyberware. Adicione para ver por categoria.</Text>
+        <Empty
+          image={<ThunderboltOutlined style={{ fontSize: 56, color: "#bfbfbf" }} />}
+          description="Nenhum cyberware. Adicione para ver por categoria."
+          style={{ marginBottom: 8 }}
+        />
       )}
       {canEdit && (
         <Button

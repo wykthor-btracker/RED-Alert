@@ -120,6 +120,14 @@ export function createDefaultCharacterData(): CharacterData {
   };
 }
 
+/** Maximum HP from rules: 10 + (5 × average of BODY and WILL, rounded up). */
+export function getDerivedMaxHealth(body: number, will: number): number {
+  const b = Number(body) || 0;
+  const w = Number(will) || 0;
+  const avg = (b + w) / 2;
+  return 10 + 5 * Math.ceil(avg);
+}
+
 /** Generate URL-safe slug from name/title. */
 export function slugify(text: string): string {
   return text
