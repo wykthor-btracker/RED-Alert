@@ -1,0 +1,10 @@
+ all:
+  children:
+    my_containers:
+      hosts:
+        work1:
+          ansible_host: work1
+        work2:
+          ansible_host: work2
+      vars:
+        ansible_connection: community.docker.docker 

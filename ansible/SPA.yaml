@@ -1,0 +1,136 @@
+- hosts: all
+  become: true
+  vars: 
+    ansible_become_method: su
+    container_count: 4
+    default_container_name: spa
+    default_container_image: soundboard-spa
+
+    spa_enable_dind: true
+    spa_dind_storage_driver: vfs
+  tasks:
+    - name: Install aptitude
+      apt:
+        name: aptitude
+        state: latest
+        update_cache: true
+
+    - name: Install required system packages
+      apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+        state: latest
+        update_cache: true
+
+    - name: Map Debian arch to Docker arch
+      ansible.builtin.set_fact:
+        docker_arch: >-
+          {{ 'amd64' if ansible_architecture in ['x86_64', 'amd64'] else
+             'arm64' if ansible_architecture in ['aarch64', 'arm64'] else
+             ansible_architecture }}
+
+    - name: Create Docker keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Add Docker GPG key
+      ansible.builtin.shell: |
+        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Add Docker APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+
+    - name: Update apt and install docker-ce
+      apt:
+        name: docker-ce
+        state: latest
+        update_cache: true
+
+    - name: Create virtual environment
+      ansible.builtin.shell: |
+        virtualenv -p python3 venv
+      args:
+        creates: venv/bin/activate
+
+    - name: Use venv interpreter for next tasks
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: /venv/bin/python3
+
+    - name: Bootstrap venv pip tooling (ensures packaging exists)
+      ansible.builtin.command: /venv/bin/python3 -m pip install --upgrade pip setuptools wheel packaging
+
+    - name: Install Docker Module for Python
+      ansible.builtin.pip:
+        name: 
+          - docker
+          - requests
+        state: present
+        executable: /venv/bin/pip3
+
+    - name: Ensure private SSH key is present in workspace
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/id_rsa_encrypted"
+        dest: /root/.ssh/id_rsa
+        mode: '0600'
+
+    - name: Ensure correct permissions on SSH key
+      ansible.builtin.file:
+        path: /root/.ssh/id_rsa
+        mode: '0600'
+
+    - name: Add GitHub to known_hosts (or your remote's host)
+      ansible.builtin.known_hosts:
+        name: github.com
+        key: "{{ lookup('pipe', 'ssh-keyscan github.com') }}"
+
+    - name: Clone SPA repository
+      ansible.builtin.command: |
+        git clone -c "core.sshCommand=ssh -i ~/.ssh/id_rsa" git@github.com:wykthor-btracker/RED-Alert.git /app
+        git checkout ansible
+  
+    - name: DinD-only Docker daemon tuning
+      ansible.builtin.import_tasks: spa_dind.yaml
+      when: spa_enable_dind | bool
+
+    - name: Start Docker daemon
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Wait for Docker socket
+      wait_for:
+        path: /var/run/docker.sock
+        state: present
+
+    - name: Build SPA Docker image
+      ansible.builtin.shell: |
+        cd /app
+        docker build -t {{ default_container_image }} .
+
+    # - name: Pull default Docker image
+    #   community.docker.docker_image:
+    #     name: "{{ default_container_image }}"
+    #     source: pull
+
+    - name: Create default containers
+      community.docker.docker_container:
+        name: "{{ default_container_name }}{{ item }}"
+        image: "{{ default_container_image }}"
+        ports:
+          - "{{ 8080 + item | int }}:80"
+        command: "nginx -g 'daemon off;'"
+        state: started
+      with_sequence: count={{ container_count }}

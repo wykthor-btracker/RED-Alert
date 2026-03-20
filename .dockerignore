@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+dist
+
+# VCS
+.git
+.github
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+

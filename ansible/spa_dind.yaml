@@ -1,0 +1,38 @@
+# DinD-only: ensure inner Docker daemon uses storage-driver compatible with nested containers
+- name: Ensure /etc/docker exists
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: "0755"
+
+- name: Configure Docker daemon for nested container runtime
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+    content: |
+      {
+        "storage-driver": "{{ spa_dind_storage_driver | default('vfs') }}"
+      }
+
+- name: Restart Docker daemon to apply daemon.json
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+    enabled: true
+
+- name: Wait for Docker socket after restart
+  ansible.builtin.wait_for:
+    path: /var/run/docker.sock
+    state: present
+    timeout: 60
+
+- name: Verify Docker storage driver
+  ansible.builtin.command: docker info --format '{{ "{{ .Driver }}" }}'
+  register: docker_driver
+  changed_when: false
+
+- name: Assert Docker is using expected storage driver
+  ansible.builtin.assert:
+    that:
+      - docker_driver.stdout == (spa_dind_storage_driver | default('vfs'))
+    fail_msg: "Docker driver is {{ docker_driver.stdout }}, expected {{ spa_dind_storage_driver | default('vfs') }}"
