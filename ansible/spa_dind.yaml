@@ -5,6 +5,12 @@
     state: directory
     mode: "0755"
 
+- name: Check current Docker storage driver
+  ansible.builtin.command: docker info --format '{{ "{{ .Driver }}" }}'
+  register: current_docker_driver
+  failed_when: false
+  changed_when: false
+
 - name: Configure Docker daemon for nested container runtime
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
@@ -13,18 +19,21 @@
       {
         "storage-driver": "{{ spa_dind_storage_driver | default('vfs') }}"
       }
+  when: current_docker_driver.stdout != (spa_dind_storage_driver | default('vfs'))
 
 - name: Restart Docker daemon to apply daemon.json
   ansible.builtin.service:
     name: docker
     state: restarted
     enabled: true
+  when: current_docker_driver.stdout != (spa_dind_storage_driver | default('vfs'))
 
 - name: Wait for Docker socket after restart
   ansible.builtin.wait_for:
     path: /var/run/docker.sock
     state: present
     timeout: 60
+  when: current_docker_driver.stdout != (spa_dind_storage_driver | default('vfs'))
 
 - name: Verify Docker storage driver
   ansible.builtin.command: docker info --format '{{ "{{ .Driver }}" }}'

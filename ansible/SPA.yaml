@@ -6,8 +6,14 @@
     default_container_name: spa
     default_container_image: soundboard-spa
 
+    reverse_proxy_container_name: reverse-proxy
+    reverse_proxy_container_image: nginx:1.27-alpine
+    reverse_proxy_config_path: /tmp/soundboard-reverse-proxy.conf
+    spa_docker_network: soundboard-net
+    
     spa_enable_dind: true
     spa_dind_storage_driver: vfs
+
   tasks:
     - name: Install aptitude
       apt:
@@ -95,10 +101,21 @@
         name: github.com
         key: "{{ lookup('pipe', 'ssh-keyscan github.com') }}"
 
-    - name: Clone SPA repository
-      ansible.builtin.command: |
-        git clone -c "core.sshCommand=ssh -i ~/.ssh/id_rsa" git@github.com:wykthor-btracker/RED-Alert.git /app
-        git checkout ansible
+    - name: Clean app path when needed
+      ansible.builtin.file:
+        path: /app
+        state: absent
+      when: spa_force_reclone | default(false)
+
+    - name: Ensure SPA repository is present on target
+      ansible.builtin.git:
+        repo: "git@github.com:wykthor-btracker/RED-Alert.git"
+        dest: /app
+        version: ansible
+        key_file: /root/.ssh/id_rsa
+        accept_hostkey: true
+        update: true
+        force: true
   
     - name: DinD-only Docker daemon tuning
       ansible.builtin.import_tasks: spa_dind.yaml
@@ -120,6 +137,17 @@
         cd /app
         docker build -t {{ default_container_image }} .
 
+    - name: Ensure Docker network exists for SPA stack
+      community.docker.docker_network:
+        name: "{{ spa_docker_network }}"
+        state: present
+
+    - name: Render reverse proxy configuration
+      ansible.builtin.template:
+        src: templates/reverse-proxy.conf.j2
+        dest: "{{ reverse_proxy_config_path }}"
+        mode: "0644"
+
     # - name: Pull default Docker image
     #   community.docker.docker_image:
     #     name: "{{ default_container_image }}"
@@ -128,9 +156,23 @@
     - name: Create default containers
       community.docker.docker_container:
         name: "{{ default_container_name }}{{ item }}"
+        hostname: "{{ default_container_name }}{{ item }}"
         image: "{{ default_container_image }}"
-        ports:
-          - "{{ 8080 + item | int }}:80"
         command: "nginx -g 'daemon off;'"
         state: started
+        networks:
+          - name: "{{ spa_docker_network }}"
       with_sequence: count={{ container_count }}
+
+    - name: Create reverse proxy container
+      community.docker.docker_container:
+        name: "{{ reverse_proxy_container_name }}"
+        image: "{{ reverse_proxy_container_image }}"
+        ports:
+          - "80:80"
+        volumes:
+          - "{{ reverse_proxy_config_path }}:/etc/nginx/conf.d/default.conf:ro"
+        networks:
+          - name: "{{ spa_docker_network }}"
+        recreate: true
+        state: started
