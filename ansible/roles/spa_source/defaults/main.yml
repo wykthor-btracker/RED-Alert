@@ -1,0 +1,4 @@
+spa_git_host: github.com
+spa_git_temp_dir: /tmp
+spa_git_temp_prefix: spa_git_key_
+spa_repo_version: ansible

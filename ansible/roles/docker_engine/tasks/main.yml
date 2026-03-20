@@ -1,0 +1,45 @@
+- name: Map Debian arch to Docker arch
+  ansible.builtin.set_fact:
+    docker_arch: >-
+      {{ 'amd64' if ansible_facts['architecture'] in ['x86_64', 'amd64'] else
+         'arm64' if ansible_facts['architecture'] in ['aarch64', 'arm64'] else
+         ansible_facts['architecture'] }}
+
+- name: Create Docker keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Add Docker GPG key
+  ansible.builtin.shell: |
+    curl -fsSL {{ docker_apt_gpg_url }} | gpg --dearmor -o {{ docker_apt_keyring_path }}
+  args:
+    creates: "{{ docker_apt_keyring_path }}"
+
+- name: Add Docker APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch={{ docker_arch }} signed-by={{ docker_apt_keyring_path }}] https://download.docker.com/linux/debian {{ ansible_facts['distribution_release'] }} stable"
+    state: present
+    filename: docker
+
+- name: Update apt and install docker-ce
+  ansible.builtin.apt:
+    name: docker-ce
+    state: latest
+    update_cache: true
+
+- name: DinD-only Docker daemon tuning
+  ansible.builtin.import_tasks: dind.yml
+  when: spa_enable_dind | bool
+
+- name: Start Docker daemon
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Wait for Docker socket
+  ansible.builtin.wait_for:
+    path: "{{ docker_socket_path }}"
+    state: present

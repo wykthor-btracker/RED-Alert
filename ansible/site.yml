@@ -1,0 +1,26 @@
+- hosts: all
+  vars:
+    ansible_become_method: su
+    spa_repo_url: "git@github.com:wykthor-btracker/RED-Alert.git"
+    spa_app_path: /app
+    container_count: 4
+    default_container_name: spa
+    default_container_image: soundboard-spa
+
+    reverse_proxy_container_name: reverse-proxy
+    reverse_proxy_container_image: nginx:1.27-alpine
+    reverse_proxy_config_path: /tmp/soundboard-reverse-proxy.conf
+    spa_docker_network: soundboard-net
+
+    spa_enable_dind: true
+    spa_dind_storage_driver: vfs
+
+  roles:
+    - role: base_system
+      become: true
+    - role: docker_engine
+      become: true
+    - role: spa_source
+      become: true
+    - role: spa_runtime
+      become: true

@@ -1,0 +1,31 @@
+- name: Install aptitude
+  ansible.builtin.apt:
+    name: "{{ base_system_aptitude_package }}"
+    state: latest
+    update_cache: true
+
+- name: Install required system packages
+  ansible.builtin.apt:
+    pkg: "{{ base_system_system_packages }}"
+    state: latest
+    update_cache: true
+
+- name: Create virtual environment
+  ansible.builtin.shell: "{{ base_system_virtualenv_create_command }}"
+  args:
+    creates: "{{ base_system_virtualenv_activate_path }}"
+
+- name: Use venv interpreter for next tasks
+  ansible.builtin.set_fact:
+    ansible_python_interpreter: "{{ base_system_python_interpreter }}"
+
+- name: Bootstrap venv pip tooling (ensures packaging exists)
+  ansible.builtin.command: >-
+    {{ base_system_python_interpreter }} -m pip install --upgrade
+    {{ base_system_pip_bootstrap_packages | join(' ') }}
+
+- name: Install Docker Module for Python
+  ansible.builtin.pip:
+    name: "{{ base_system_python_modules }}"
+    state: present
+    executable: "{{ base_system_pip_executable }}"

@@ -1,0 +1,22 @@
+base_system_aptitude_package: aptitude
+
+base_system_system_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - python3-pip
+  - virtualenv
+  - python3-setuptools
+
+base_system_virtualenv_create_command: "virtualenv -p python3 venv"
+base_system_virtualenv_activate_path: "venv/bin/activate"
+base_system_python_interpreter: "/venv/bin/python3"
+base_system_pip_bootstrap_packages:
+  - pip
+  - setuptools
+  - wheel
+  - packaging
+base_system_python_modules:
+  - docker
+  - requests
+base_system_pip_executable: "/venv/bin/pip3"

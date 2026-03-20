@@ -1,0 +1,47 @@
+- name: Pull SPA repository with ephemeral deploy key
+  when: not ansible_check_mode
+  block:
+    - name: Create temporary key path
+      ansible.builtin.tempfile:
+        state: file
+        path: "{{ spa_git_temp_dir }}"
+        prefix: "{{ spa_git_temp_prefix }}"
+      register: spa_git_key
+      check_mode: false
+
+    - name: Materialize vaulted key for git only
+      ansible.builtin.copy:
+        src: id_rsa_encrypted
+        dest: "{{ spa_git_key.path }}"
+        mode: "0600"
+      no_log: true
+      when: spa_git_key.path is defined
+
+    - name: Add GitHub to known_hosts (or your remote's host)
+      ansible.builtin.known_hosts:
+        name: "{{ spa_git_host }}"
+        key: "{{ lookup('pipe', 'ssh-keyscan ' ~ spa_git_host) }}"
+
+    - name: Clean app path when needed
+      ansible.builtin.file:
+        path: "{{ spa_app_path }}"
+        state: absent
+      when: spa_force_reclone | default(false)
+
+    - name: Ensure SPA repository is present on target
+      ansible.builtin.git:
+        repo: "{{ spa_repo_url }}"
+        dest: "{{ spa_app_path }}"
+        version: "{{ spa_repo_version }}"
+        key_file: "{{ spa_git_key.path }}"
+        accept_hostkey: true
+        update: true
+        force: true
+      when: spa_git_key.path is defined
+  always:
+    - name: Remove temporary deploy key
+      ansible.builtin.file:
+        path: "{{ spa_git_key.path | default('') }}"
+        state: absent
+      when: spa_git_key.path is defined
+      no_log: true

@@ -1,0 +1,6 @@
+docker_apt_gpg_url: https://download.docker.com/linux/debian/gpg
+docker_apt_keyring_path: /etc/apt/keyrings/docker.gpg
+docker_daemon_config_dir: /etc/docker
+docker_daemon_config_path: /etc/docker/daemon.json
+docker_socket_path: /var/run/docker.sock
+docker_socket_wait_timeout: 60

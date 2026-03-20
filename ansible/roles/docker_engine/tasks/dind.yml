@@ -1,7 +1,6 @@
-# DinD-only: ensure inner Docker daemon uses storage-driver compatible with nested containers
 - name: Ensure /etc/docker exists
   ansible.builtin.file:
-    path: /etc/docker
+    path: "{{ docker_daemon_config_dir }}"
     state: directory
     mode: "0755"
 
@@ -10,38 +9,40 @@
   register: current_docker_driver
   failed_when: false
   changed_when: false
+  check_mode: false
 
 - name: Configure Docker daemon for nested container runtime
   ansible.builtin.copy:
-    dest: /etc/docker/daemon.json
+    dest: "{{ docker_daemon_config_path }}"
     mode: "0644"
     content: |
       {
         "storage-driver": "{{ spa_dind_storage_driver | default('vfs') }}"
       }
-  when: current_docker_driver.stdout != (spa_dind_storage_driver | default('vfs'))
+  when: (current_docker_driver.stdout | trim) != (spa_dind_storage_driver | default('vfs'))
 
 - name: Restart Docker daemon to apply daemon.json
   ansible.builtin.service:
     name: docker
     state: restarted
     enabled: true
-  when: current_docker_driver.stdout != (spa_dind_storage_driver | default('vfs'))
+  when: (current_docker_driver.stdout | trim) != (spa_dind_storage_driver | default('vfs'))
 
 - name: Wait for Docker socket after restart
   ansible.builtin.wait_for:
-    path: /var/run/docker.sock
+    path: "{{ docker_socket_path }}"
     state: present
-    timeout: 60
-  when: current_docker_driver.stdout != (spa_dind_storage_driver | default('vfs'))
+    timeout: "{{ docker_socket_wait_timeout }}"
+  when: (current_docker_driver.stdout | trim) != (spa_dind_storage_driver | default('vfs'))
 
 - name: Verify Docker storage driver
   ansible.builtin.command: docker info --format '{{ "{{ .Driver }}" }}'
   register: docker_driver
   changed_when: false
+  check_mode: false
 
 - name: Assert Docker is using expected storage driver
   ansible.builtin.assert:
     that:
-      - docker_driver.stdout == (spa_dind_storage_driver | default('vfs'))
-    fail_msg: "Docker driver is {{ docker_driver.stdout }}, expected {{ spa_dind_storage_driver | default('vfs') }}"
+      - (docker_driver.stdout | trim) == (spa_dind_storage_driver | default('vfs'))
+    fail_msg: "Docker driver is {{ docker_driver.stdout | default('') | trim }}, expected {{ spa_dind_storage_driver | default('vfs') }}"

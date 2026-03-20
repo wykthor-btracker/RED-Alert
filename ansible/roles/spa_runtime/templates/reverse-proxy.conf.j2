@@ -1,8 +1,8 @@
-upstream soundboard_spa {
+upstream {{ reverse_proxy_upstream_name }} {
 {% for i in range(1, (container_count | int) + 1) %}
   server {{ default_container_name }}{{ i }}:80;
 {% endfor %}
-  keepalive 32;
+  keepalive {{ reverse_proxy_upstream_keepalive }};
 }
 
 server {
@@ -19,6 +19,6 @@ server {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Connection "";
-    proxy_pass http://soundboard_spa;
+    proxy_pass http://{{ reverse_proxy_upstream_name }};
   }
 }

@@ -1,0 +1,5 @@
+spa_container_command: "nginx -g 'daemon off;'"
+reverse_proxy_published_ports:
+  - "80:80"
+reverse_proxy_upstream_name: soundboard_spa
+reverse_proxy_upstream_keepalive: 32
