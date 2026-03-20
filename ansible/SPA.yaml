@@ -36,9 +36,9 @@
     - name: Map Debian arch to Docker arch
       ansible.builtin.set_fact:
         docker_arch: >-
-          {{ 'amd64' if ansible_architecture in ['x86_64', 'amd64'] else
-             'arm64' if ansible_architecture in ['aarch64', 'arm64'] else
-             ansible_architecture }}
+          {{ 'amd64' if ansible_facts['architecture'] in ['x86_64', 'amd64'] else
+             'arm64' if ansible_facts['architecture'] in ['aarch64', 'arm64'] else
+             ansible_facts['architecture'] }}
 
     - name: Create Docker keyrings directory
       ansible.builtin.file:
@@ -54,7 +54,7 @@
 
     - name: Add Docker APT repository
       ansible.builtin.apt_repository:
-        repo: "deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        repo: "deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_facts['distribution_release'] }} stable"
         state: present
         filename: docker
 
@@ -85,37 +85,49 @@
         state: present
         executable: /venv/bin/pip3
 
-    - name: Ensure private SSH key is present in workspace
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/id_rsa_encrypted"
-        dest: /root/.ssh/id_rsa
-        mode: '0600'
+    - name: Pull SPA repository with ephemeral deploy key
+      block:
+        - name: Create temporary key path
+          ansible.builtin.tempfile:
+            state: file
+            path: /tmp
+            prefix: spa_git_key_
+          register: spa_git_key
 
-    - name: Ensure correct permissions on SSH key
-      ansible.builtin.file:
-        path: /root/.ssh/id_rsa
-        mode: '0600'
+        - name: Materialize vaulted key for git only
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/id_rsa_encrypted"
+            dest: "{{ spa_git_key.path }}"
+            mode: "0600"
+          no_log: true
 
-    - name: Add GitHub to known_hosts (or your remote's host)
-      ansible.builtin.known_hosts:
-        name: github.com
-        key: "{{ lookup('pipe', 'ssh-keyscan github.com') }}"
+        - name: Add GitHub to known_hosts (or your remote's host)
+          ansible.builtin.known_hosts:
+            name: github.com
+            key: "{{ lookup('pipe', 'ssh-keyscan github.com') }}"
 
-    - name: Clean app path when needed
-      ansible.builtin.file:
-        path: /app
-        state: absent
-      when: spa_force_reclone | default(false)
+        - name: Clean app path when needed
+          ansible.builtin.file:
+            path: /app
+            state: absent
+          when: spa_force_reclone | default(false)
 
-    - name: Ensure SPA repository is present on target
-      ansible.builtin.git:
-        repo: "git@github.com:wykthor-btracker/RED-Alert.git"
-        dest: /app
-        version: ansible
-        key_file: /root/.ssh/id_rsa
-        accept_hostkey: true
-        update: true
-        force: true
+        - name: Ensure SPA repository is present on target
+          ansible.builtin.git:
+            repo: "git@github.com:wykthor-btracker/RED-Alert.git"
+            dest: /app
+            version: ansible
+            key_file: "{{ spa_git_key.path }}"
+            accept_hostkey: true
+            update: true
+            force: true
+      always:
+        - name: Remove temporary deploy key
+          ansible.builtin.file:
+            path: "{{ spa_git_key.path | default('') }}"
+            state: absent
+          when: spa_git_key is defined
+          no_log: true
   
     - name: DinD-only Docker daemon tuning
       ansible.builtin.import_tasks: spa_dind.yaml
