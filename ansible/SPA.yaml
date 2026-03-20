@@ -156,10 +156,11 @@
     - name: Create default containers
       community.docker.docker_container:
         name: "{{ default_container_name }}{{ item }}"
-        hostname: "{{ default_container_name }}{{ item }}"
+        hostname: "{{ inventory_hostname }}_{{ default_container_name }}{{ item }}"
         image: "{{ default_container_image }}"
         command: "nginx -g 'daemon off;'"
         state: started
+        recreate: true
         networks:
           - name: "{{ spa_docker_network }}"
       with_sequence: count={{ container_count }}
