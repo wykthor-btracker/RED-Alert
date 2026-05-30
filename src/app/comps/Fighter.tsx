@@ -157,7 +157,7 @@ export default function Fighter(props: any) {
           <Row style={style}>
             <Col span={24}>
               <Row justify="space-between" align="middle">
-                <Col style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Col data-testid="fighter-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {(props.item as { characterIcon?: string }).characterIcon && (
                     <div
                       style={{

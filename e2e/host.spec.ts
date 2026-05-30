@@ -6,9 +6,9 @@ test.describe("Host functionality", () => {
   });
 
   test("user sees Host and Node options when not connected", async ({ page }) => {
-    await expect(page.getByRole("button", { name: /Host/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Node/i })).toBeVisible();
-    await expect(page.getByPlaceholder(/input/i).or(page.locator('input'))).toBeVisible();
+    await expect(page.getByRole("button", { name: "Host", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Node", exact: true })).toBeVisible();
+    await expect(page.getByPlaceholder("ID do host")).toBeVisible();
   });
 
   test("user can become host and sees connection ID", async ({ page }) => {

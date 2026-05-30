@@ -549,7 +549,7 @@ export default function InitiativeTracker(props: any) {
                 </Button>
               </Col>
               <Col>
-                <Switch onChange={setToggleForm}/>
+                <Switch data-testid="add-combatant-toggle" onChange={setToggleForm}/>
               </Col>
               <Col>Adicionar novo combatente</Col>
               <Col>

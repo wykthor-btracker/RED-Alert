@@ -115,6 +115,28 @@ function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * PeerJS broker options. When NEXT_PUBLIC_PEER_HOST is set (e.g. a local
+ * peerjs-server in tests/CI) we point the client at it for deterministic,
+ * offline P2P; otherwise we return undefined so PeerJS uses its public cloud
+ * broker, preserving production behaviour.
+ */
+function getPeerOptions() {
+  const host = process.env.NEXT_PUBLIC_PEER_HOST;
+  if (!host) return undefined;
+  return {
+    host,
+    port: Number(process.env.NEXT_PUBLIC_PEER_PORT ?? 9000),
+    path: process.env.NEXT_PUBLIC_PEER_PATH ?? "/",
+    secure: process.env.NEXT_PUBLIC_PEER_SECURE === "1",
+  };
+}
+
+function createPeer(): Peer {
+  const opts = getPeerOptions();
+  return opts ? new Peer(opts) : new Peer();
+}
+
 export function MessageBus (props: any) {
     const [messageLog, setMessageLog]   = useState<Array<LogData>>([
       { id: nextId(), content: {message: "Teste!"},
@@ -500,7 +522,7 @@ export function MessageBus (props: any) {
         }
       }
 
-      const peer = new Peer()
+      const peer = createPeer()
       peerRef.current = peer;
       messageApi.open({
         type: 'loading',
@@ -708,7 +730,7 @@ export function MessageBus (props: any) {
         setConn(null)
       }
       clearConnectionTimeout();
-      const peer = new Peer()
+      const peer = createPeer()
       peerRef.current = peer;
       peer.on("disconnected", () => {
         clearKeepaliveInterval()

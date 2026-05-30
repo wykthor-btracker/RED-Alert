@@ -18,14 +18,13 @@ test.describe("Health update in Iniciativa", () => {
     await page.getByRole("tab", { name: /Iniciativa/i }).click();
 
     // Open "Adicionar novo combatente" form (toggle switch)
-    const addToggle = page.getByText("Adicionar novo combatente").locator("..").getByRole("switch");
-    await addToggle.click();
+    await page.getByTestId("add-combatant-toggle").click();
 
     // Fill and submit: Nome, SP, Vida (HP)
-    await page.getByRole("textbox", { name: /Nome/i }).fill("Test Fighter");
-    await page.getByRole("textbox", { name: /Poder de parada/i }).fill("5");
-    await page.getByRole("textbox", { name: /Vida/i }).fill("10");
-    await page.getByRole("button", { name: /Adicionar/i }).click();
+    await page.locator("#basic_name").fill("Test Fighter");
+    await page.locator("#basic_SP").fill("5");
+    await page.locator("#basic_health").fill("10");
+    await page.getByRole("button", { name: "Adicionar", exact: true }).click();
 
     // Wait for the fighter to appear and get initial HP progress bar (first fighter's HP)
     const firstFighterHp = page.getByTestId("fighter-hp").first();
